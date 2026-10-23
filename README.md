@@ -12,19 +12,27 @@ These rings are application authority domains. Agent Zero does not enter the hos
 
 Most of the system is Python. An asyncio supervisor owns authentication, process records, capabilities, provider access, storage, audio routing, and syscall dispatch. LangGraph provides the agent execution graph and durable interrupts; it does not decide who has authority. Electron hosts the window and microphone permission flow, with plain HTML, CSS, and JavaScript handling the orb and terminal visuals.
 
-```mermaid
-flowchart TD
-    UI[Electron: JARVIS orb / Cardinal terminal] --> Supervisor[Python supervisor]
-    Operator[Authenticated operator] --> Admin[Ring 0 administrative dispatcher]
-    Admin --> Supervisor
-    Supervisor --> Parent[Ring 3: parent JARVIS / PID 1]
-    Parent --> Children[Ring 3: child agents]
-    Parent --> Tools[Restricted tool and process syscall adapter]
-    Children --> Tools
-    Tools --> Supervisor
-    Supervisor --> Models[Shared inference gateway]
-    Supervisor --> Files[Sandboxed file worker]
-    Supervisor --> State[SQLite history, audit, process records and checkpoints]
+```text
+                 Electron window
+              JARVIS orb / Cardinal
+                        |
+       +----------------+----------------+
+       |                                 |
+  Ring 3: agents                  Ring 0: operator
+  JARVIS (PID 1)                 Authenticated commands
+       |                                 |
+  Child agents                   Administrative dispatcher
+       |                                 |
+  Restricted tool / syscall adapter       |
+       |                                 |
+       +----------------+----------------+
+                        |
+                Python supervisor
+                        |
+       +----------------+----------------+
+       |                |                |
+  Shared inference  Sandboxed file    SQLite state
+      gateway          worker        and checkpoints
 ```
 
 There is one daemon per state directory. The desktop and optional Textual console connect to that daemon rather than creating independent runtimes. Local HTTP binds to `127.0.0.1`; the Unix socket is restricted to the current OS user.
