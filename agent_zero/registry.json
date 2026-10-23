@@ -1,13 +1,13 @@
 {
   "schema_version": 2,
   "checked": "2026-10-23",
-  "recommended_default": "z-ai/glm-5.3-flash",
+  "recommended_default": "nvidia/nemotron-3-ultra-550b-a55b:free",
   "note": "Budget shortlist based on catalog prices and published evaluations, not live Agent Zero evaluation. Price ceilings fail closed; no automatic model fallback.",
   "cloud": [
     {
       "id": "z-ai/glm-5.3-flash",
       "name": "GLM 5.3 Flash",
-      "role": "Recommended default",
+      "role": "Optional paid alternative",
       "license": "MIT",
       "input_per_million": 0.0052,
       "output_per_million": 0.1985,
@@ -33,7 +33,7 @@
     {
       "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
       "name": "Nemotron 3 Ultra \u00b7 Free",
-      "role": "Free default \u00b7 delegation verified",
+      "role": "Recommended default \u00b7 free \u00b7 delegation verified",
       "license": "See upstream model card",
       "input_per_million": 0,
       "output_per_million": 0,

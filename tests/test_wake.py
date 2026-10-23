@@ -92,7 +92,7 @@ class WakeRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.store.set_setting("model", "minimax/minimax-m3.1-flash")
         replacement = Runtime(Config(root=Path(self.temp.name)))
         try:
-            self.assertEqual(replacement.model, "z-ai/glm-5.3-flash")
+            self.assertEqual(replacement.model, "nvidia/nemotron-3-ultra-550b-a55b:free")
             self.assertEqual(replacement.store.setting("model"), replacement.model)
             self.assertFalse(replacement.config.cloud_enabled)
         finally:

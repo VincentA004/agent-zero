@@ -302,6 +302,7 @@ class ProcessTests(unittest.IsolatedAsyncioTestCase):
     async def test_children_share_one_pre_request_spend_ceiling(self):
         from unittest.mock import patch
         from agent_zero.engines import OpenRouter
+        self.runtime.model = self.runtime.registry['cloud'][0]['id']  # explicit paid fixture; no live provider
         self.runtime.config.session_budget_usd = .0003
         self.runtime.cloud = OpenRouter(self.runtime.config)
         provider = {'choices':[{'message':{'role':'assistant','content':'Budgeted response'}}]}

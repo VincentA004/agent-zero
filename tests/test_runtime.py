@@ -162,7 +162,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.cloud.spent = self.runtime.config.session_budget_usd
         with patch.dict("os.environ", {"OPENROUTER_API_KEY": "test"}), patch("agent_zero.engines.request_json", side_effect=AssertionError("Network called")) as request:
             with self.assertRaises(PermissionError):
-                await self.runtime.cloud.chat(self.runtime.model, [{"role": "user", "content": "hi"}], self.runtime.registry["cloud"][0])
+                await self.runtime.cloud.chat(self.runtime.registry["cloud"][0]["id"], [{"role": "user", "content": "hi"}], self.runtime.registry["cloud"][0])
             request.assert_not_called()
 
     async def test_audio_transition_cancels_previous_owner(self):

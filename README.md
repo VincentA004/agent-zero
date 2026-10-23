@@ -64,7 +64,7 @@ Authenticate before administrative actions. `status` and the dashboard are read-
 | Command | Behavior |
 | --- | --- |
 | `status` | Inspect actual runtime state |
-| `model z-ai/glm-5.3-flash` | Change the active cloud model; does not enable paid inference |
+| `model nvidia/nemotron-3-ultra-550b-a55b:free` | Select the default free cloud model; paid selections are blocked in free-only mode |
 | `allow file_write` / `deny file_write` | Change the file tool capability |
 | `flush session` / `flush all` | Clear conversation state (and graph checkpoints when enabled) |
 | `exit` | Revoke authority and restore userspace when no traps remain |
@@ -76,7 +76,7 @@ The Python syscall layer also exposes `sys_mount_sandbox`, with a host directory
 
 ## Models and billing
 
-See [the dated model research](docs/model-research.md) for primary-source links, prices, corrections to the PRD, and memory caveats. A GPT-6 Luna research agent checked the candidates. The rebuilt registry records exact IDs, sources, roles, licenses, prices, and the date checked. GLM 5.3 Flash is the recommended default; Ling 3.0 Flash is a cheaper promotional trial; Gemma 4 26B A4B `:free` is a fixed free experiment with zero provider price ceilings. Retired persisted model IDs migrate to GLM and are audited. There is no automatic fallback from free to paid. The local shortlist is Qwen3.5 4B and 9B. Catalog evidence should be revisited; it is not permanent truth.
+See [the dated model research](docs/model-research.md) for primary-source links, prices, corrections to the PRD, and memory caveats. A GPT-6 Luna research agent checked the candidates. The rebuilt registry records exact IDs, sources, roles, licenses, prices, and the date checked. Nemotron 3 Ultra `:free` is the recommended default and has passed live parent/child delegation. GLM 5.3 Flash is an optional paid alternative; Ling 3.0 Flash is a cheaper promotional trial; Gemma 4 26B A4B `:free` is a fixed free experiment with zero provider price ceilings. Retired persisted model IDs migrate to Nemotron 3 Ultra Free and are audited. There is no automatic fallback from free to paid. The local shortlist is Qwen3.5 4B and 9B. Catalog evidence should be revisited; it is not permanent truth.
 
 The portable conservative local default is `qwen3.5:4b` with **4,096 context** and one request at a time. This Mac already has 9B installed, so the prepared project config selects **Qwen3.5 9B** for Cardinal/local fallback. Set `local_enabled: true` to use an installed model for conversation; local mode takes priority over cloud mode and never falls back to a cloud service. `qwen3.5:9b` is an option nearer 12–16 GB. Model weight sizes exclude KV cache, runtime overhead, and audio models. `local_memory_gb` is checked against Ollama’s reported resident size; inference pauses below 1.5 GB available host RAM. This is **not an enforced OS memory limit** or a guarantee against transient allocation spikes. With 4K context, the installed Q4_K_M 9B model reported 5.14 GiB resident in a live test. Metrics are available in daemon status. No Ollama language model is downloaded by the daemon. An explicitly configured local conversation loads the already installed model as needed. Ollama must already be running and the exact model must already be installed before local conversation or natural-language kernel parsing can work. Direct MLX remains an interchangeable adapter follow-up; no speculative HTTP latency claims are assumed.
 
