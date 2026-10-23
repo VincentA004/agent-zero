@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.agent-zero/
+*.sqlite*
+.DS_Store
+artifacts/
+output/
+.playwright-cli/
+*.egg-info/
+
+dist/

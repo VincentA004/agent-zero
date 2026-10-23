@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-zero-runtime"
+version = "0.1.0"
+description = "A local-first supervisory runtime with JARVIS and Cardinal interfaces"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+agent = ["langgraph>=1.2.16,<2", "langgraph-checkpoint-sqlite>=3.1.2,<4"]
+tui = ["textual>=8.2.8,<9", "psutil>=7.2.2,<8"]
+# faster-whisper 1.2.1 still calls av.open(metadata_errors=...), removed in PyAV 19.
+voice = ["faster-whisper>=1.2.1,<2", "av>=18.1,<19", "sounddevice>=0.5,<1"]
+dev = ["playwright>=1.50"]
+
+[project.scripts]
+agentd = "agent_zero.__main__:main"
+cardinal = "agent_zero.tui:main"
+
+[tool.setuptools.package-data]
+agent_zero = ["web/*", "registry.json"]
+
+[tool.setuptools.packages.find]
+include = ["agent_zero*"]

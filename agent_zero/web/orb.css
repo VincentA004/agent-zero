@@ -1,0 +1,116 @@
+/* JARVIS has one primary surface: the orb. Cardinal keeps its terminal layout. */
+body.orb-mode { background: #05090e; overflow: hidden; }
+.orb-mode .sidebar { width: 70px; padding: 25px 11px; background: #070d13a8; border-color: #14202a80; }
+.orb-mode .brand { padding: 0 4px 38px; }
+.orb-mode .brand-mark { font-size: 34px; }
+.orb-mode .brand > span:last-child,
+.orb-mode .workspace-label,
+.orb-mode .nav small,
+.orb-mode .sidebar-bottom,
+.orb-mode .side-rule { display: none; }
+.orb-mode .nav { font-size: 0; justify-content: center; gap: 0; padding: 13px 9px; margin-bottom: 14px; }
+.orb-mode .nav > span:first-child { font-size: 20px; text-align: center; }
+.orb-mode .nav.active { background: #14304077; border-color: #28435380; }
+.orb-mode .nav.subtle { margin-top: 14px; }
+.orb-mode .nav .green-dot { display: none; }
+.orb-mode main { margin-left: 70px; }
+.orb-mode .topbar { height: 62px; padding: 0 29px; border-bottom-color: #17222c60; }
+.orb-mode .breadcrumb { font-size: 9px; letter-spacing: 3px; }
+.orb-mode .breadcrumb > span,
+.orb-mode .breadcrumb { color: transparent; }
+.orb-mode .breadcrumb strong { position: absolute; color: #7794a6; font-size: 9px; }
+.orb-mode .header-right { font-size: 7px; gap: 22px; }
+.orb-mode .header-right .icon-button { border: none; color: #5e7c90; }
+.orb-mode .main-footer { display: none; }
+.voice-space { padding: 0; max-width: none; height: calc(100svh - 62px); min-height: 430px; position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% 43%, #102f401a, transparent 57%); }
+.voice-space .orb-stage { height: 100%; width: 100%; position: absolute; inset: 0; overflow: hidden; }
+.voice-space .orb-grid { opacity: .36; background-size: 58px 58px; mask-image: radial-gradient(ellipse at 50% 44%, black, transparent 58%); }
+.orb-trigger { position: absolute; z-index: 2; left: 50%; top: 44%; width: min(42vw, 430px); height: min(42vw, 430px); transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.orb-trigger:focus-visible { outline: 1px solid #6de1ff80; outline-offset: 28px; }
+.orb-horizon { position: absolute; left: 25%; right: 25%; top: 74%; height: 1px; background: linear-gradient(90deg, transparent, #3e859c1a, transparent); pointer-events: none; }
+.orb-coordinates { position: absolute; left: 29px; right: 29px; bottom: 28px; display: flex; justify-content: space-between; font: 7px monospace; letter-spacing: 2px; color: #3c5b6d; pointer-events: none; }
+.voice-vitals { position: absolute; z-index: 3; top: 50%; right: 32px; transform: translateY(-65%); width: 156px; padding: 18px 0 18px 18px; border-left: 1px solid #20374566; transition: opacity .2s, transform .2s; }
+.voice-vitals.collapsed { opacity: 0; transform: translate(25px, -65%); pointer-events: none; visibility: hidden; }
+.vitals-title { display: flex; justify-content: space-between; align-items: center; color: #52768b; font: 7px monospace; letter-spacing: 1.7px; margin-bottom: 24px; }
+.voice-vitals .vital { margin-bottom: 22px; }
+.voice-vitals .vital label { font: 8px monospace; color: #527186; }
+.voice-vitals .vital label span { font-size: 10px; color: #89b1c5; }
+.voice-vitals .meter { height: 2px; background: #172733; }
+.voice-vitals .meter i { background: #508ea8; }
+.voice-vitals .vital small { font-size: 6px; letter-spacing: .3px; color: #365367; }
+.voice-vitals .vital-row { font: 6px monospace; color: #476478; margin: 15px 0; }
+.voice-vitals .vital-row b { font-size: 8px; }
+.voice-model { display: flex; width: 100%; align-items: center; gap: 8px; font: 8px monospace; color: #7b9cae; padding: 18px 0 10px; border-top: 1px solid #20374566; margin-top: 23px; text-align: left; }
+.voice-model > span:last-child { margin-left: auto; color: #41667a; }
+.voice-cloud { color: #436a7d; font: 6px monospace; letter-spacing: 1px; }
+.voice-dock { position: absolute; z-index: 3; left: 50%; bottom: 9%; transform: translateX(-50%); text-align: center; min-width: 210px; }
+.voice-wave { display: flex; gap: 4px; align-items: center; justify-content: center; height: 20px; margin-bottom: 13px; opacity: .28; }
+.voice-wave i { height: 3px; width: 2px; background: #73d7ee; border-radius: 3px; }
+.voice-wave i:nth-child(3n) { height: 7px; }
+.voice-wave i:nth-child(4n) { height: 12px; }
+.voice-wave i:nth-child(7n) { height: 16px; }
+.voice-state { font: 7px monospace; letter-spacing: 3px; color: #648c9f; min-height: 10px; }
+.voice-controls { display: flex; align-items: center; justify-content: center; gap: 24px; margin-top: 23px; }
+.voice-controls { gap: 19px; min-width: 220px; }
+.voice-control { flex: none; }
+.voice-space #orb { transition: opacity .7s, filter .7s; }
+.voice-space[data-phase="dormant"] #orb,
+.voice-space[data-phase="checking"] #orb { opacity: .5; filter: saturate(.65); }
+.voice-space[data-phase="paused"] #orb { opacity: .35; }
+.voice-space[data-phase="awake"] .voice-state { color: #b8f3ff; }
+.voice-space[data-phase="dormant"] .voice-wave,
+.voice-space[data-phase="checking"] .voice-wave { opacity: .12; }
+.registry-note { color: #5d7a91; max-width: 365px; }
+.voice-control { width: 34px; height: 34px; display: grid; place-items: center; color: #5f8498; border-radius: 50%; border: 1px solid transparent; transition: .2s; }
+.voice-control:hover { background: #15344466; border-color: #3b6377; color: #b9f3ff; }
+.voice-control svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+.voice-mic { width: 49px; height: 49px; border: 1px solid #365e72; background: #15314055; color: #a4d9eb; box-shadow: 0 0 26px #53c7ee08; }
+.voice-mic svg { width: 20px; height: 20px; }
+.voice-control[aria-pressed="true"] { color: #b6f0ff; border-color: #56b4d2; background: #214d5e; }
+#sound-button[aria-pressed="true"] { color: #8d7475; background: #2a1a1e; border-color: #573b40; }
+.voice-shortcut { display: block; font: 6px monospace; letter-spacing: 1.5px; color: #324f62; margin-top: 20px; }
+.metrics-toggle, .cardinal-access { position: absolute; z-index: 4; color: #496f84; border: 1px solid #21384766; border-radius: 5px; width: 31px; height: 31px; bottom: 23px; font-size: 16px; }
+.metrics-toggle { right: 28px; }
+.cardinal-access { left: 27px; }
+.orb-coordinates { bottom: 72px; }
+.voice-space[data-phase="listening"] .voice-wave,
+.voice-space[data-phase="speaking"] .voice-wave { opacity: .85; }
+.voice-space[data-phase="listening"] .voice-wave i,
+.voice-space[data-phase="speaking"] .voice-wave i { animation: pulse .8s ease-in-out infinite; }
+.voice-space[data-phase="listening"] .voice-wave i:nth-child(3n),
+.voice-space[data-phase="speaking"] .voice-wave i:nth-child(3n) { animation-delay: .25s; }
+.voice-space[data-phase="thinking"] .voice-state { color: #8eb0e0; animation: pulse 1.4s infinite; }
+.voice-space[data-phase="listening"] .voice-state { color: #9ddfef; }
+.voice-space[data-phase="unavailable"] .voice-state { color: #8f846f; }
+.voice-setup-details { display: grid; grid-template-columns: 105px 1fr; gap: 16px 15px; border-block: 1px solid #263847; padding: 22px 0; margin: 23px 0; }
+.voice-setup-details span { font: 8px monospace; color: #5e8298; letter-spacing: 1px; }
+.voice-setup-details strong { font-size: 11px; color: #a7bfce; font-weight: 400; }
+dialog code { overflow-wrap: anywhere; }
+@media(max-width: 1100px) {
+  .voice-vitals { width: 132px; right: 23px; }
+  .voice-space .orb-stage { width: calc(100% - 70px); }
+  .orb-trigger { left: 50%; }
+}
+@media(max-width: 760px) {
+  .voice-vitals { top: 25px; right: 22px; transform: none; border: none; padding: 0; width: 110px; opacity: .7; }
+  .voice-vitals.collapsed { transform: translateX(20px); }
+  .voice-vitals .vitals-title, .voice-vitals .vital small, .voice-vitals .vital-row, .voice-vitals .voice-model, .voice-vitals .voice-cloud { display: none; }
+  .voice-vitals .vital { margin-bottom: 14px; }
+  .voice-vitals .vital label, .voice-vitals .vital label span { font-size: 7px; }
+  .voice-space .orb-stage { width: 100%; }
+  .orb-mode .sidebar { width: 55px; padding: 22px 5px; }
+  .orb-mode .brand { padding: 0 3px 30px; }
+  .orb-mode .brand-mark { font-size: 29px; }
+  .orb-mode main { margin-left: 55px; }
+  .orb-mode .topbar { padding: 0 21px; }
+  .orb-mode .header-right #clock { display: none; }
+  .orb-mode .header-right .connection { font-size: 6px; }
+  .voice-dock { bottom: 12%; }
+  .orb-trigger { width: 65vw; height: 65vw; }
+}
+@media(max-height: 650px) {
+  .voice-dock { bottom: 6%; }
+  .voice-wave { display: none; }
+  .voice-controls { margin-top: 15px; }
+  .voice-shortcut { display: none; }
+}
