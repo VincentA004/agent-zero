@@ -1,146 +1,228 @@
 # Agent Zero
 
-A Python supervisory runtime with one window and two operating modes: **JARVIS**, a voice-only cyan floating intelligence orb, and **Cardinal**, a bare green terminal administrative console. Built from the v1.2 PRD, with an 8–16 GB local inference target.
+I wanted to design my own agent runtime around ideas from operating systems: processes with identities, inherited capabilities, a supervisor that owns policy, and a small syscall interface between an agent and the resources it can use.
 
-**Parent JARVIS and child agents use a Unix-inspired process supervisor and a shared cloud gateway.** Fresh configurations start in a free local preview; this prepared checkout has live-tested free OpenRouter conversation. Local Qwen is available independently for Cardinal and as an explicit userspace fallback. No API key, model download, microphone access, cloud speech, or inference request is needed to explore it. Python handles the runtime, authentication, storage, Unix IPC, agent graph, file tools, local inference adapter, voice routing, and native TUI. The browser uses plain HTML/CSS/JavaScript for visuals; there is no frontend build step or CDN.
+That led to two privilege rings. **JARVIS runs in Ring 3**, where it can converse, use permitted tools, and delegate tasks to child agents. **Cardinal is the Ring 0 control interface**, where I authenticate and change the runtime's policy. The model can request more authority, but the Python supervisor decides which calls are valid. A prompt cannot promote an agent into the kernel.
 
-## Start
+The interface follows the same split. JARVIS is a floating, voice-reactive orb. Asking to enter kernel mode lowers an authentication drawer over it; after verification, that same Electron window becomes Cardinal's green terminal console. Leaving Cardinal returns to the orb.
 
-This prepared checkout has the existing `qwen3.5:9b` and the free tiny English speech model. The agreed architecture uses cloud models for parent JARVIS and children, with local Qwen for Cardinal intent parsing. Cloud execution remains disabled until explicitly configured; local JARVIS is an optional fallback (`local_enabled: true`). No language model download was needed. To reopen that configured runtime:
+These rings are application authority domains. Agent Zero does not enter the host operating system's kernel, run a QEMU guest, or expose raw host process control.
 
-```sh
-.venv/bin/python -m agent_zero --home .agent-zero serve --graph
+## The runtime
+
+Most of the system is Python. An asyncio supervisor owns authentication, process records, capabilities, provider access, storage, audio routing, and syscall dispatch. LangGraph provides the agent execution graph and durable interrupts; it does not decide who has authority. Electron hosts the window and microphone permission flow, with plain HTML, CSS, and JavaScript handling the orb and terminal visuals.
+
+```mermaid
+flowchart TD
+    UI[Electron: JARVIS orb / Cardinal terminal] --> Supervisor[Python supervisor]
+    Operator[Authenticated operator] --> Admin[Ring 0 administrative dispatcher]
+    Admin --> Supervisor
+    Supervisor --> Parent[Ring 3: parent JARVIS / PID 1]
+    Parent --> Children[Ring 3: child agents]
+    Parent --> Tools[Restricted tool and process syscall adapter]
+    Children --> Tools
+    Tools --> Supervisor
+    Supervisor --> Models[Shared inference gateway]
+    Supervisor --> Files[Sandboxed file worker]
+    Supervisor --> State[SQLite history, audit, process records and checkpoints]
 ```
 
-The model files and runtime state live in ignored `.agent-zero/`. Enable the **Hey Jarvis** ear control in the app and allow microphone access once per session. This prepared checkout now uses **Nemotron 3 Ultra Free** through OpenRouter, with `cloud_free_only: true`, a **$0 budget**, zero provider price ceilings and no paid fallback. The API key is stored privately outside Git. Offline speech recognition remains local. You can also double-click `dist/Agent Zero.app`, or run `.venv/bin/python -m agent_zero --home .agent-zero desktop`. The launcher starts the graph-enabled Python daemon if needed and opens a native ARM64 Electron window. Install the free desktop dependency with `npm ci` (Node 22.12+). The `.app` bundles Electron and is locally ad-hoc signed; it still depends on this checkout and Python virtual environment. There is no Chrome app window or browser fallback in desktop mode.
+There is one daemon per state directory. The desktop and optional Textual console connect to that daemon rather than creating independent runtimes. Local HTTP binds to `127.0.0.1`; the Unix socket is restricted to the current OS user.
 
+## Two rings, different authority
 
-Python 3.11+ on macOS or Linux:
+| Domain | Principal | Authority |
+| --- | --- | --- |
+| Ring 3 / userspace | Parent JARVIS and child agents | Read permitted files, write when enabled, create bounded children, inspect their subtree, collect results, and request review |
+| Ring 0 / supervision | Authenticated human operator | Select models, change capabilities, mount workspace directories, clear memory, inspect the full process table, and resolve reviews |
 
-```sh
-python3 -m agent_zero serve
+Cardinal's local Qwen model can translate natural language into a proposed syscall. It does not authenticate the operator or execute that proposal automatically. Python verifies an explicit command against the operator's token and the current policy.
+
+Agent identity comes from a supervisor-owned context variable. The model cannot choose its caller PID, supply an operator token, or attach a more privileged identity to a tool call. The model tool adapter has a fixed allowlist and a separate process dispatcher; it never forwards arbitrary model-generated names into the administrative dispatcher. Knowing that `sys_model_swap` exists does not make it callable from JARVIS.
+
+Operator tokens are held in UI memory, expire after five minutes, and are checked by the backend. A new authentication invalidates the previous operator token. Passphrases are stored as salted scrypt hashes and stay outside agent prompts, conversation history, and graph state.
+
+## Agents as processes
+
+Parent JARVIS is the persistent **PID 1** service. Each child has a PID, parent PID, task, execution state, inherited model, capability set, and separate conversation history and LangGraph checkpoints.
+
+The process model borrows Unix lifecycle semantics:
+
+| Call | Meaning in Agent Zero |
+| --- | --- |
+| `sys_getpid`, `sys_getppid` | Read the supervisor-assigned identity |
+| `sys_spawn` | Create and start a child with a task |
+| `sys_fork` | Create an inactive child with a snapshot of the parent's persisted conversation |
+| `sys_exec` | Start a created child's registered task workflow |
+| `sys_proc_tree`, `sys_proc_info` | Inspect processes within the caller's subtree |
+| `sys_wait` | Poll or wait for a result, without reaping the process |
+| `sys_signal` | Apply `STOP`, `CONT`, `TERM`, or `KILL` to a permitted child subtree |
+| `sys_reap` | Release a terminated direct child's live process record and result |
+
+For example, a parent can delegate a calculation and use the child's result in its next turn:
+
+```text
+PID 1 / JARVIS
+  sys_spawn(task="Calculate 17 × 19", name="math-child") → PID 2
+
+PID 2 / math-child
+  model → tool loop → result: 323 → exited
+
+PID 1 / JARVIS
+  sys_wait(pid=2, timeout=30) → completed result: 323
+  incorporate result into the spoken response
+  sys_reap(pid=2)
 ```
 
-Open [the local interface](http://127.0.0.1:8420). The main screen is a voice interface with no text chat or transcript. Click the orb or microphone, or hold Space, to speak after offline STT is configured. A small settings dialog explains missing voice setup. Use the wake control to enable “Hey Jarvis” once per browser session; the microphone is not opened until you opt in and grant browser permission. In preview mode, spoken replies are deterministic and no conversation model is called.
+These are logical asyncio processes. Fork copies conversation context rather than a running interpreter, provider request, authentication session, or set of file descriptors. Exec starts the registered agent workflow rather than an arbitrary host executable.
 
-Click the small Cardinal control, press **Cmd+K** (Ctrl+K elsewhere), or say “enter kernel mode.” A command drawer drops over the orb. On first use, create and confirm a passphrase of at least 12 characters; later, type it or use **Speak passphrase locally**. After verification, the same window becomes Cardinal. Type `exit` or select **exit kernel** to return to JARVIS. You can also set or replace the passphrase from a terminal:
+Children inherit their parent's selected model and can only narrow its capabilities. Every tool call intersects that inherited set with current operator permissions and ancestor restrictions, so a later policy change applies to existing descendants. A model swap changes the parent's selection; existing children retain theirs.
 
-```sh
-.venv/bin/python -m agent_zero --home .agent-zero init
+Defaults allow four live children, depth two, twelve child creations per daemon lifetime, and two concurrent inference requests shared across the tree. A wait does not occupy an inference slot. Finished parents' children are adopted by PID 1, and process IDs are not reused after reaping.
+
+`STOP` and `CONT` are cooperative at model/tool boundaries. `TERM` cancels a subtree; `KILL` currently uses the same supervised cancellation. Neither signal can kill an arbitrary host PID. An in-flight cloud request may still finish remotely after local cancellation, but its late response is not published. On restart, unfinished children become interrupted rather than automatically replaying model requests or file writes.
+
+## The syscall boundary
+
+A syscall is a validated request to the supervisor. File operations appear to models as `list_files`, `read_file`, and `write_file`; process operations use the `sys_*` names above. Administrative calls are available only through the authenticated operator path.
+
+| Ring 0 call | Responsibility |
+| --- | --- |
+| `sys_model_swap` | Select a registered cloud model, subject to billing policy |
+| `sys_perm_toggle` | Change a runtime capability |
+| `sys_mount_sandbox` | Mount a directory as read-only or read-write within the file boundary |
+| `sys_mem_flush` | Clear selected conversation state and graph checkpoints |
+| `sys_proc_table` | Inspect the complete logical process table |
+| `sys_trap_table`, `sys_resolve` | Inspect and resolve pending human reviews |
+| `sys_parse` | Obtain a local-model command proposal without executing it |
+
+The operator can also manage processes across the full tree. Agents remain limited to the process relationships enforced by the supervisor. `sys_auth` and explicit `voice_auth` belong to the human credential flow; `sys_exit` drops operator authority.
+
+When an agent needs a policy change, it uses `request_kernel`. The transport also exposes `sys_call` to request review. That creates a **trap**:
+
+1. The supervisor persists the request, interrupts the active parent turn, and suspends userspace work at execution boundaries.
+2. The authentication drawer opens. Typed or explicitly captured offline speech goes directly to the credential verifier.
+3. After authentication, Cardinal replaces the orb and exposes the request alongside process state, capabilities, and the event log.
+4. The operator reviews the request and issues any policy change explicitly. Approving a review records a decision; it does not automatically execute the requested privileged action.
+5. `exit` revokes authority and returns to userspace when no pending traps remain. Operator-created agent tasks queue until userspace resumes.
+
+With the `agent` extra enabled, traps use LangGraph `interrupt()` and `Command(resume=...)` with SQLite checkpoints. The core preview has a persisted review queue. A state directory containing pending graph checkpoints must continue to use the graph-enabled daemon.
+
+Cardinal provides direct commands such as:
+
+```text
+ps
+tree
+info 2
+signal 2 STOP
+signal 2 CONT
+allow file_write
+deny file_write
+model nvidia/nemotron-3-ultra-550b-a55b:free
+flush session
+exit
 ```
 
-The default state directory is `~/.agent-zero` (private permissions), containing `credentials.json` (salted scrypt hash), `state.sqlite`, `sandbox/`, and `agentd.sock`. `AGENT_ZERO_HOME` or `--home PATH` selects another directory. The socket is restricted to your OS user; HTTP binds exclusively to `127.0.0.1`. Stop the daemon with Ctrl+C.
+`flush all` also cancels affected work and clears fork snapshots and cached child results before deleting checkpoints. Flushing one session does not erase independent copies held by its children. Pending reviews must be resolved before memory can be flushed.
 
-## Optional Python features
+The full authority and lifecycle specification is in [the process model](docs/process-model.md).
+
+## Models and resource accounting
+
+The intended split is **cloud inference for parent JARVIS and children**, with **local Qwen for Cardinal command proposals**. Local userspace conversation is an explicit fallback enabled by `local_enabled: true`; it takes priority over cloud conversation when enabled.
+
+The registry's default cloud route is `nvidia/nemotron-3-ultra-550b-a55b:free`. Parent and children share one gateway, concurrency limit, token accounting, and budget. The example configuration uses `cloud_free_only: true` and a $0 budget: paid models are rejected before networking, provider price ceilings are zero, and there is no paid fallback. Unexpected reported nonzero billing blocks subsequent requests. Free-provider capacity and quotas can still prevent a request from succeeding.
+
+The local registry includes Qwen3.5 4B and 9B. The portable default is `qwen3.5:4b`; the development Mac uses its already installed `qwen3.5:9b`. Local inference uses a 4,096-token context and checks reported resident memory and available host RAM against an 8–16 GB target. Those checks are admission guards, not OS-enforced allocation limits. Language models are never downloaded automatically.
+
+Model records include sources, roles, pricing, and research dates. See [model research](docs/model-research.md) and [budget cloud research](docs/budget-cloud-research.md) for the selection history. The free NVIDIA endpoint has provider logging terms; inspect the registry notice before sending sensitive content. Paid-mode budgets, if enabled later, apply per daemon lifetime rather than acting as a persistent account spending limit.
+
+## Voice and mode transitions
+
+The main interface has no text chat or transcript. Enable wake monitoring once per app session, grant microphone permission, and say **“Hey Jarvis.”** You can also click the orb or hold Space to speak. Replies use an installed local English system voice.
+
+“Hey Jarvis, enter kernel mode” is recognized locally as an explicit mode request and opens the authentication drawer. No conversation model receives the passphrase. On first use, the drawer can create and confirm a passphrase of at least 12 characters; later it offers typed or explicitly initiated spoken authentication. Spoken verification uses a separate offline endpoint and must match the configured phrase exactly.
+
+Wake detection currently transcribes short clips with local faster-whisper rather than a dedicated acoustic wake model. Ambient nonmatches never enter conversation history or the cloud gateway. Temporary recordings are deleted after transcription. After a reply, the app listens for a follow-up; six seconds without speech ends the active conversation. “Go to sleep” returns to dormant monitoring if enabled; “stop listening,” Stop, and Escape disable it. Losing focus or opening an administrative dialog releases the microphone.
+
+The current pipeline is clip-based. Streaming model-to-audio output, simultaneous spoken interruption, and dedicated Piper/Kokoro synthesis remain future work. Physical microphone quality and noisy-room wake accuracy require hardware testing.
+
+## Running it
+
+Use Python 3.11+ and Node.js 22.12+. macOS is the primary desktop target; the daemon and browser interface also support Linux, with a different file-isolation boundary.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[agent,tui]'
-.venv/bin/python -m agent_zero serve --graph
+.venv/bin/python -m pip install -e '.[agent,tui,voice]'
+npm ci
+mkdir -p .agent-zero
+cp config.example.json .agent-zero/config.json
+.venv/bin/python -m agent_zero --home .agent-zero desktop
 ```
 
-The `agent` extra enables parent/child LangGraph sessions and a bounded model → tools → model loop and real SQLite-backed `interrupt()` / `Command(resume=...)` traps. Without it, the zero-dependency preview uses a persisted trap queue. Do not switch a home directory containing pending graph checkpoints to the non-graph daemon. A single daemon owns each home directory.
-
-For the native Textual interface, leave the daemon running and open another terminal:
-
-```sh
-.venv/bin/python -m agent_zero tui
-```
-
-Both consoles share the same Python daemon and state over IPC. The native console takes over its current terminal and restores it on exit. Ctrl+L drops authority; Ctrl+Q closes the console. Browser authority tokens are held in memory only and expire after five minutes; the daemon drops kernel mode on expiry. Authenticating a new operator invalidates the previous operator token.
-
-## Parent JARVIS and child processes
-
-PID 1 is parent JARVIS. Children inherit a subset of its file/delegation capabilities and its selected cloud model, share the same budget gateway, and have separate task histories and graph checkpoints. Models can spawn/fork, exec a registered task, inspect their subtree, wait, signal descendants and reap direct children. They cannot change models, permissions, mounts, credentials or review decisions. Only authenticated Cardinal commands can do that. A model asking for a Ring 0 method is rejected, even if it knows the method name.
-
-Cardinal supports `ps`, `tree`, `spawn TASK`, `fork TASK`, `exec PID`, `wait PID`, `info PID`, `signal PID TERM|STOP|CONT`, and `reap PID`. Operator-created work queues while in kernel mode and starts after `exit`. The old review listing is now `sys_trap_table`; `sys_proc_table` lists real logical agent records. See [the complete process and syscall authority design](docs/process-model.md).
-
-These are supervised logical agent processes, not host process IDs. Defaults allow four live children, depth two, twelve creations per daemon lifetime and two concurrent inference requests. STOP/CONT pause at model/tool boundaries; TERM cancels a subtree. Unfinished work is marked interrupted on restart rather than automatically replayed. No raw host fork or shell exec is exposed.
-
-## Kernel commands
-
-Authenticate before administrative actions. `status` and the dashboard are read-only and available without escalation.
-
-| Command | Behavior |
-| --- | --- |
-| `status` | Inspect actual runtime state |
-| `model nvidia/nemotron-3-ultra-550b-a55b:free` | Select the default free cloud model; paid selections are blocked in free-only mode |
-| `allow file_write` / `deny file_write` | Change the file tool capability |
-| `flush session` / `flush all` | Clear conversation state and graph checkpoints; `all` also clears fork snapshots/cached child results and cancels their work |
-| `exit` | Revoke authority and restore userspace when no traps remain |
-| Other natural language | Ask the installed Ollama model for a JSON syscall **proposal**; never automatically executes |
-
-Say “Enter kernel mode” or “switch to Cardinal” through the configured voice interface to request a userspace trap and open the authentication drawer. The underlying chat API also accepts `/kernel` or `System Call: Enter Kernel Mode`. The daemon pauses Ring 3, saves the request, and cancels userspace audio. Authenticate, approve or reject the review, then drop authority to resume. Approval records a review decision; it does not execute the requested privileged action. Issue the intended command explicitly. In the native console, `approve ID` and `reject ID` accept unambiguous ID prefixes.
-
-The Python syscall layer also exposes `sys_mount_sandbox`, with a host directory, mount alias, and `ro`/`rw` mode. Mounts are session-only and cannot expose the runtime directory or any ancestor containing it. Shell and network tool adapters are not implemented and cannot be enabled.
-
-## Models and billing
-
-See [the dated model research](docs/model-research.md) for primary-source links, prices, corrections to the PRD, and memory caveats. A GPT-6 Luna research agent checked the candidates. The rebuilt registry records exact IDs, sources, roles, licenses, prices, and the date checked. Nemotron 3 Ultra `:free` is the recommended default and has passed live parent/child delegation. GLM 5.3 Flash is an optional paid alternative; Ling 3.0 Flash is a cheaper promotional trial; Gemma 4 26B A4B `:free` is a fixed free experiment with zero provider price ceilings. Retired persisted model IDs migrate to Nemotron 3 Ultra Free and are audited. There is no automatic fallback from free to paid. The local shortlist is Qwen3.5 4B and 9B. Catalog evidence should be revisited; it is not permanent truth.
-
-The portable conservative local default is `qwen3.5:4b` with **4,096 context** and one request at a time. This Mac already has 9B installed, so the prepared project config selects **Qwen3.5 9B** for Cardinal/local fallback. Set `local_enabled: true` to use an installed model for conversation; local mode takes priority over cloud mode and never falls back to a cloud service. `qwen3.5:9b` is an option nearer 12–16 GB. Model weight sizes exclude KV cache, runtime overhead, and audio models. `local_memory_gb` is checked against Ollama’s reported resident size; inference pauses below 1.5 GB available host RAM. This is **not an enforced OS memory limit** or a guarantee against transient allocation spikes. With 4K context, the installed Q4_K_M 9B model reported 5.14 GiB resident in a live test. Metrics are available in daemon status. No Ollama language model is downloaded by the daemon. An explicitly configured local conversation loads the already installed model as needed. Ollama must already be running and the exact model must already be installed before local conversation or natural-language kernel parsing can work. Direct MLX remains an interchangeable adapter follow-up; no speculative HTTP latency claims are assumed.
-
-Paid inference is **blocked** by `cloud_free_only: true` in this checkout. To configure free OpenRouter on another checkout, run:
+Copy the example configuration only for a new runtime directory. The initial configuration has cloud conversation disabled. To enable the free-only OpenRouter route, enter your key through the hidden terminal prompt, then restart the daemon:
 
 ```sh
 .venv/bin/python -m agent_zero --home .agent-zero configure-openrouter
 ```
 
-Paste the key into the hidden terminal prompt. The command makes a read-only key validation request, preserves voice settings, saves the key privately as `.agent-zero/openrouter.key` (mode 0600), and enables the fixed Nemotron 3 Ultra `:free` route with a $0 budget. A saved key takes precedence over an older environment key. Nothing is saved if validation fails. Restart the daemon to apply changes. `OPENROUTER_API_KEY` remains supported if no private key file exists. Neither source is sent to graph state, model prompts, browser state or Git.
+The setup command validates the key without inference and saves it privately outside Git. A saved key takes precedence over `OPENROUTER_API_KEY`. For voice input, set `stt_model_path` in `.agent-zero/config.json` to an installed faster-whisper directory containing `model.bin`, `config.json`, and `tokenizer.json`. The app does not download speech models at startup. Cardinal's natural-language parser separately requires Ollama and the configured Qwen model.
 
-Free-only mode rejects paid models before networking, including authenticated model swaps. Requests cap prompt, completion, per-request and image prices at zero. There is no paid fallback. Unexpected reported nonzero billing blocks further requests. Explicit upstream 502/503 overloads get at most two retries in free-only mode; authentication, 429 quota/rate-limit and ambiguous errors are not retried. A successful free response is not a guarantee that a later request will have capacity.
+The desktop command starts or reuses the Python daemon. To run it in the foreground instead:
 
-To run the real parent/child proof without sending existing conversation history:
+```sh
+.venv/bin/python -m agent_zero --home .agent-zero serve --graph
+```
+
+The browser interface is available at `http://127.0.0.1:8420`. An optional native terminal client connects to the same daemon:
+
+```sh
+.venv/bin/python -m agent_zero --home .agent-zero tui
+```
+
+In Electron, click the Cardinal control or press Cmd+K / Ctrl+K to open the authentication drawer. Type `exit` in Cardinal to return to JARVIS. The terminal client uses Ctrl+L to drop authority and Ctrl+Q to close. A terminal can also set or replace the passphrase using `init`.
+
+Build a macOS app bundle with:
+
+```sh
+.venv/bin/python -m agent_zero --home .agent-zero build-app --output 'dist/Agent Zero.app'
+```
+
+The destination must not exist. The bundle embeds Electron and is locally ad-hoc signed, but still uses this checkout and its Python virtual environment; it is not a standalone notarized installer.
+
+State lives in the selected home directory: SQLite history, audit records and checkpoints, hashed credentials, private provider credentials, and the sandbox workspace. The default is `~/.agent-zero`; `--home` or `AGENT_ZERO_HOME` selects another directory. Local state, model files, API keys, and generated app bundles are ignored by Git.
+
+## Where the boundary holds
+
+On macOS, file tools execute in a separate short-lived Python worker under a deny-by-default OS sandbox. Paths are resolved relative to permitted directories, traversal and symlinks are rejected, mounts enforce read-only or read-write access, and file size and type are checked. The worker cannot access adjacent runtime credentials or open network connections. Other platforms retain descriptor-based file confinement without this macOS worker policy. The daemon and Ollama are outside the worker sandbox.
+
+There is no arbitrary shell, code-execution, or network tool adapter, and those capabilities cannot be enabled by a model. Loopback HTTP mutations require the exact Host and Origin, a custom header, and an HttpOnly SameSite session cookie. Electron disables renderer Node integration, enables context isolation and sandboxing, restricts navigation to the runtime origin, and blocks new windows. Processes running as the same OS user remain within the local trust boundary. Conversation history is stored as unencrypted local SQLite data.
+
+## Verification and code map
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+npm test
+```
+
+The automated suite uses temporary state, simulated inference, local sockets, and real macOS worker-policy checks. It covers privilege enforcement, process controls, restart recovery, graph interrupts, credential handling, billing rejection, file isolation, HTTP request validation, and voice lifecycle behavior.
+
+An opt-in live check exercises real free-provider delegation with isolated conversation state:
 
 ```sh
 .venv/bin/python -m agent_zero --home .agent-zero check-delegation
 ```
 
-It uses isolated temporary state, one child, real LangGraph and the fixed free route. It verifies parent `sys_spawn`, child completion, parent `sys_wait`, answer 323, and reported cost $0. The private report is `.agent-zero/delegation-check.json`. This check consumes free-request quota. The free NVIDIA endpoint logs requests under its trial terms; keep confidential content out of it. See [the provider notice](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free).
+That check consumes free-request quota. It verifies parent spawn, child completion, result collection, and reported cost. Detailed results and remaining limitations are in [verification](docs/verification.md) and [implementation status](docs/implementation-status.md).
 
-The gateway enforces a maximum output length, reserves conservative estimated token charges before requests, and sends provider price ceilings. It retains reservations on ambiguous failures. When paid mode is explicitly configured later, its ceiling is **per daemon lifetime**, not a persistent account spending limit. The prepared free-only checkout uses $0. Provider billing remains authoritative; also configure an OpenRouter key spending limit before paid use. Prices can change, so recheck catalog/provider quotes first. No automatic model fallback runs. Conversation requests are serialized independently of supervisor commands. Kernel authentication and traps cancel the local conversation task without waiting for a slow provider. Local conversation uses cancellable HTTP and closes its provider connection on interruption. Cloud requests still use blocking HTTP and may complete provider-side; its reservation is retained and a late response is not published.
-
-## Voice
-
-The main JARVIS application is an orb with microphone/mute/stop controls and optional compact telemetry. There is no text composer, chat transcript, or prompt panel. After authentication, this same surface becomes the text-based Cardinal console; there are no workspace tabs or separate kernel pane.
-
-Start a conversation explicitly: click the orb or microphone to start, click again to finish, or hold Space and release to send. After each spoken reply, JARVIS automatically listens for a follow-up even if wake-word monitoring is disabled. Six seconds without speech ends the active conversation; if wake monitoring was enabled, it returns to dormant wake detection, otherwise the microphone stays off. Clips stop after 15 seconds or about 1.3 seconds of silence following speech. Stop, Escape, leaving the view, or losing focus during capture releases the audio tracks and discards the recording. Audio is sent only to the loopback Python daemon, which transcribes it offline and deletes the temporary recording. No browser cloud speech recognition is used.
-
-**Wake phrase:** enable the ear/wake control once per app session, grant microphone permission, and say **“Hey Jarvis”**. While the JARVIS view is visible and focused, the dimmed orb monitors short speech clips using the installed offline recognizer. Nonmatching ambient speech never reaches OpenRouter, conversation history, or audit logs. Silent clips are discarded in the browser. A leading “Hey Jarvis” wakes the orb; a request spoken in the same breath is preserved. After the reply, JARVIS listens for a follow-up; six seconds without speech returns it to dormant wake monitoring. Say “go to sleep” to return to dormancy, or “stop listening” to disable wake monitoring entirely. Stop and Escape also disable it. Switching to Cardinal, opening a settings/auth dialog, hiding the page, or losing focus releases the microphone; returning to the active JARVIS view resumes monitoring only if it was enabled.
-
-This uses **local speech recognition**, not a dedicated acoustic wake-word model. Detection has clip/transcription latency and still needs real-world accent/noise testing; it is not a claim of Siri-level responsiveness. Wake speech is processed only on this machine, and generated replies are not recorded back into the wake detector because capture pauses during playback. No wake check invokes a cloud model.
-
-For browser voice input, install the voice extra, set `stt_model_path` in the daemon config to a locally installed faster-whisper directory, and restart. The model directory must include `model.bin`, `config.json`, and `tokenizer.json`; nothing is downloaded by the running application automatically. The small Voice settings dialog shows the exact active config path. Conversation text remains in the local Python history store but is never rendered in the orb interface.
-
-Speech output uses only an installed English voice (`localService`), starts in response to a user-initiated voice turn, and can be muted. Switching to Cardinal cancels browser speech. The Python `AudioRouter` provides generation-based cancellation and a free macOS system-voice fallback. The optional `LocalTranscriber` uses `faster-whisper` with `local_files_only=True`, requiring an explicitly installed model path.
-
-Typed kernel authentication works. The browser auth dialog also has a **Speak passphrase locally** button. Its explicitly captured audio uses a separate credential endpoint, never chat, history, graph state, or TTS. Cancellation invalidates a pending verification. Recognition must match the configured passphrase exactly, including case and punctuation; typed auth remains available. The native console also offers explicit **F2 spoken authentication** when started with a locally installed faster-whisper model:
-
-```sh
-.venv/bin/python -m pip install -e '.[voice]'
-.venv/bin/python -m agent_zero tui --voice-model /absolute/path/to/local/whisper-model
-```
-
-F2 loads the offline recognizer, records five seconds, deletes the temporary WAV, and submits the transcript directly to the same credential verifier. The transcript is never logged or sent to a conversation model. Recognition must match the passphrase exactly (a terminal sentence period is removed); a simple word-based phrase works best. This optional hardware flow has not been tested with a live microphone. Typed auth remains available. No recording begins at startup, and no model is downloaded automatically.
-
-The browser capture/turn/playback pipeline has been tested with synthetic audio and a stubbed model response; real microphone quality and end-to-end wake accuracy still require hardware verification. Dedicated Kokoro/Piper synthesis remains deferred. Wake-triggered follow-up turns are implemented.
-
-## Security boundary
-
-“Ring 0” and “Ring 3” describe application authority domains; this software does not enter actual OS kernel mode. File tools restrict relative paths, reject symlinks and traversal, use descriptor-relative opens, enforce read-only mounts and file-size limits, and reject non-regular files. On macOS, attached file tools execute in a separate short-lived Python worker using a **deny-by-default OS sandbox**. Only the selected sandbox/mount roots are accessible for data, only writable roots may change, and network access is denied. Interpreter/library/module reads are allowed for startup. Tests verify that an adjacent credential file cannot be read and a loopback network connection cannot be opened. Other platforms retain descriptor-based confinement without this macOS policy. This isolates the file worker, not the entire daemon or Ollama service; arbitrary code and shell plugins are still excluded. Both local and cloud models can use the same bounded read/list/write tool loop. Every tool checks current permissions, write access starts disabled, and escalation only creates a human review request. `max_agent_steps` defaults to six (maximum twelve), with at most four calls per step. A denied tool returns an error for the model to explain or recover from; limits prevent infinite retry loops.
-
-Loopback HTTP checks the Host, Origin, a custom request header, and a private HttpOnly SameSite browser-session cookie before mutation; there is no CORS permission or remote binding. Other processes running as your OS user are within the trust boundary. Kernel secrets are hashed, not logged, and never enter model prompts. Failed authentication is rate limited. SQLite stores conversation text unencrypted on the local machine. Read-only local telemetry/audit endpoints are not a separate multi-user privacy boundary.
-
-## Verification
-
-```sh
-python3 -m unittest discover -s tests -v
-node --check agent_zero/web/app.js
-node --test tests/voice_state.test.mjs
-```
-
-The suite checks privilege enforcement, expiry, lockout, sandbox traversal/symlinks, mounted secrets, read-only mounts, permission toggles, trap persistence, cost rejection before networking, audio ownership, CSRF protections, and preview behavior. With the agent extra installed it also checks a real LangGraph interrupt surviving graph reconstruction and authenticated resume. The automated suite uses temporary state, stubbed inference, local sockets, and real macOS worker policy tests. Separate live integration checks exercised the already installed Qwen model reading a note and correctly reporting a denied write. They incur no inference cost.
-
-See [implementation status](docs/implementation-status.md) for the remaining work.
-
-Desktop development: `npm ci`, then `npm start`. Build a macOS bundle with `.venv/bin/python -m agent_zero --home .agent-zero build-app --output "dist/Agent Zero.app"` (destination must not exist). Agent logic remains Python; Electron only owns the native window, local UI and microphone permission prompt. Renderer Node integration is disabled, context isolation and sandboxing are enabled, navigation is restricted to the runtime origin, and new windows are blocked.
+| Source | Responsibility |
+| --- | --- |
+| [`runtime.py`](agent_zero/runtime.py) | Supervisor, mode transitions, administrative dispatch |
+| [`processes.py`](agent_zero/processes.py) | Process tree, inheritance, scheduling gates, lifecycle |
+| [`tools.py`](agent_zero/tools.py), [`graph.py`](agent_zero/graph.py) | Restricted model tool adapter and LangGraph execution |
+| [`security.py`](agent_zero/security.py) | Passphrase verification, tokens, expiry and rate limits |
+| [`sandbox.py`](agent_zero/sandbox.py), [`worker.py`](agent_zero/worker.py) | File boundary and isolated worker |
+| [`engines.py`](agent_zero/engines.py) | Cloud/local adapters and shared provider accounting |
+| [`server.py`](agent_zero/server.py), [`storage.py`](agent_zero/storage.py) | Loopback HTTP, Unix IPC and persisted state |
+| [`audio.py`](agent_zero/audio.py), [`wake.py`](agent_zero/wake.py) | Offline transcription, audio ownership and deterministic mode phrases |
+| [`desktop/`](desktop), [`web/`](agent_zero/web) | Electron shell and single-window interfaces |
