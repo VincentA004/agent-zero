@@ -74,7 +74,7 @@ class Server:
                     raise ValueError("Request exceeds 1MB or is empty")
                 data = await asyncio.wait_for(reader.readexactly(length), 10)
                 body = json.dumps({"ok": True, "result": await self.rpc(json.loads(data))}).encode()
-            elif verb == "GET" and path in ("/", "/style.css", "/orb.css", "/app.js", "/voice.js", "/favicon.svg"):
+            elif verb == "GET" and path in ("/", "/style.css", "/orb.css", "/cardinal.css", "/app.js", "/voice.js", "/favicon.svg"):
                 file = self.web / ("index.html" if path == "/" else path[1:])
                 body = file.read_bytes()
                 content_type = mimetypes.guess_type(file.name)[0] or "text/plain"

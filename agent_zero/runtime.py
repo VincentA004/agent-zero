@@ -14,7 +14,7 @@ from .engines import Ollama, OpenRouter
 from .sandbox import Sandbox
 from .security import Auth
 from .storage import Store
-from .wake import detect_wake, sleep_action
+from .wake import detect_wake, sleep_action, kernel_request
 from .worker import FileWorker
 from .tools import run_loop
 from .processes import CURRENT_PID, PROCESS_SYSCALLS, ProcessTable
@@ -149,6 +149,14 @@ class Runtime:
             if method == "history":
                 return self.store.history(self.session(params))
             if method == "sys_auth":
+                if params.get("create") is True:
+                    if self.auth.configured:
+                        raise PermissionError("A passphrase is already configured; use it to authenticate")
+                    phrase = params.get("passcode")
+                    if not isinstance(phrase, str) or not 12 <= len(phrase) <= 1024 or phrase != params.get("confirmation"):
+                        raise ValueError("Choose and confirm a passphrase of 12–1024 characters")
+                    self.auth.setup(phrase)
+                    self.store.audit("kernel.setup", "Operator created initial passphrase")
                 result = self.auth.authenticate(str(params.get("passcode", "")))
                 await self.suspend_userspace("kernel")
                 self.store.audit("kernel.enter", "Typed passphrase verified")
@@ -252,7 +260,7 @@ class Runtime:
                 if action := sleep_action(text):
                     return {"sleep": True, "disable_wake": action == "stop", "message": "", "preview": not self.config.cloud_enabled}
                 self.store.message(session, "user", text)
-                if text.strip().casefold().rstrip(".!?") in ("system call: enter kernel mode", "system call enter kernel mode", "enter kernel mode", "/kernel"):
+                if kernel_request(text):
                     trap = await self.create_trap(session, "Operator requested kernel mode via conversation")
                     self.store.message(session, "assistant", trap["message"])
                     return {**trap, "preview": not self.config.cloud_enabled}
@@ -341,7 +349,7 @@ class Runtime:
             async with self.lock:
                 if generation != self.voice_generation or self.audio.mode != "userspace":
                     raise PermissionError("Voice turn cancelled before inference")
-                if text.casefold().rstrip(".!?") in ("enter kernel mode", "system call enter kernel mode", "system call: enter kernel mode"):
+                if kernel_request(text):
                     return await self.create_trap(self.session(params), "Operator requested kernel mode by voice")
             result = await self.chat({"session": self.session(params), "text": text})
             async with self.lock:

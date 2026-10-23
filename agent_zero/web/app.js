@@ -1,6 +1,7 @@
 "use strict";
 import { VoiceSession } from "/voice.js";
 const $ = (id) => document.getElementById(id);
+let previousMode = null;
 let permissionDigest = "", trapDigest = "", eventDigest = "", processDigest = "";
 let state = null, token = "", tokenUntil = 0, busy = false, voiceSession = null, view = "jarvis", toastTimer;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -17,18 +18,37 @@ async function rpc(method, params = {}, signal) {
 function node(tag, className, text) { const el = document.createElement(tag); if (className) el.className = className; if (text !== undefined) el.textContent = text; return el; }
 function duration(seconds) { return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(x=>String(x).padStart(2,"0")).join(":"); }
 function authorized() { return !!token && Date.now() < tokenUntil; }
-function requireAuth() { if (authorized()) return true; void voiceSession?.pause(); $("auth-dialog").showModal(); $("passphrase").focus(); return false; }
+function requireAuth() {
+  if (authorized()) return true;
+  void voiceSession?.pause();
+  const setup = state?.auth_configured === false;
+  $("confirm-passphrase-row").hidden = !setup;
+  $("confirm-passphrase").required = setup;
+  $("passphrase").minLength = setup ? 12 : 1;
+  $("passphrase").autocomplete = setup ? "new-password" : "current-password";
+  $("auth-instructions").textContent = setup
+    ? "Create your kernel passphrase (12+ characters). It stays local, outside agent memory."
+    : "Type your kernel passphrase, or explicitly speak it using offline verification.";
+  $("spoken-auth-button").hidden = setup;
+  $("auth-error").textContent = "";
+  if (!$("auth-dialog").open) $("auth-dialog").showModal();
+  $("passphrase").focus();
+  return false;
+}
+function requestKernel() { if (requireAuth()) showView("kernel"); }
 function showView(next) {
+  if (next === "kernel" && !authorized()) { requireAuth(); return; }
   view = next;
   document.body.classList.toggle("orb-mode", next === "jarvis");
+  document.body.classList.toggle("kernel-mode", next === "kernel");
   $("jarvis-view").classList.toggle("hidden", next !== "jarvis"); $("kernel-view").classList.toggle("hidden", next !== "kernel");
   $("breadcrumb").textContent = next === "jarvis" ? "JARVIS" : "CARDINAL";
-  document.querySelectorAll(".nav[data-view]").forEach(el => el.classList.toggle("active", el.dataset.view === next));
-  if (next === "kernel") void voiceSession?.pause();
+
+  if (next === "kernel") { void voiceSession?.pause(); cancelAnimationFrame(orbFrame); $("kernel-input").focus(); }
   else voiceSession?.resume();
   if (next === "jarvis") scheduleDraw();
 }
-document.querySelectorAll("[data-view]").forEach(el=>el.addEventListener("click",()=>showView(el.dataset.view)));
+document.querySelectorAll("[data-view=kernel]").forEach(el=>el.addEventListener("click",requestKernel));
 function voiceSetup() {
   void voiceSession?.pause();
   $("voice-readiness").textContent = state?.voice?.input_ready ? "Offline speech input is ready. Click the orb, or hold Space, to speak." : state?.voice?.reason || "Waiting for the local runtime.";
@@ -63,6 +83,7 @@ $("sound-button").addEventListener("click",()=>{const muted=voiceSession.toggleM
 $("metrics-button").addEventListener("click",()=>{const hidden=$("voice-vitals").classList.toggle("collapsed");$("metrics-button").setAttribute("aria-expanded",String(!hidden));});
 let spaceHeld=false;
 document.addEventListener("keydown",event=>{
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); requestKernel(); return; }
   if(event.code==="Escape" && view==="jarvis") void voiceSession.cancel();
   if(event.code!=="Space" || event.repeat || view!=="jarvis" || document.querySelector("dialog[open]") || event.target.closest("input,textarea,select,button:not(#orb-trigger)"))return;
   event.preventDefault();spaceHeld=true;void voiceSession.start();
@@ -71,12 +92,10 @@ document.addEventListener("keyup",event=>{if(event.code==="Space"&&spaceHeld){ev
 window.addEventListener("blur",()=>{spaceHeld=false;void voiceSession?.pause();});
 window.addEventListener("focus",()=>voiceSession?.resume());
 window.addEventListener("pagehide",()=>void voiceSession.cancel());
-$("activity-nav").addEventListener("click",()=>{showView("kernel");$("events").scrollIntoView({behavior:reducedMotion?"instant":"smooth",block:"center"});});
-$("sandbox-nav").addEventListener("click",()=>{showView("kernel");$("permissions").scrollIntoView({behavior:reducedMotion?"instant":"smooth",block:"center"});});
 async function authenticate(e) {
   e.preventDefault(); const button = $("auth-form").querySelector('[type="submit"]'); button.disabled = true;
-  const passcode = $("passphrase").value; $("passphrase").value = "";
-  try { const result = await rpc("sys_auth",{passcode}); token = result.token; tokenUntil = Date.now()+result.expires_in*1000; $("auth-dialog").close(); $("auth-error").textContent = ""; showView("kernel"); toast("Kernel authority granted for five minutes."); await refresh(); }
+  const passcode = $("passphrase").value, confirmation = $("confirm-passphrase").value; $("passphrase").value = ""; $("confirm-passphrase").value = "";
+  try { const result = await rpc("sys_auth",{passcode, ...(state?.auth_configured === false ? {create:true,confirmation} : {})}); token = result.token; tokenUntil = Date.now()+result.expires_in*1000; $("auth-dialog").close(); $("auth-error").textContent = ""; showView("kernel"); toast("Kernel authority granted for five minutes."); await refresh(); }
   catch (error) { $("auth-error").textContent = error.message; }
   finally { button.disabled = false; }
 }
@@ -100,15 +119,18 @@ window.addEventListener("blur", () => void authVoice?.cancel());
 $("auth-dialog").addEventListener("close", () => void authVoice?.cancel());
 $("auth-form").addEventListener("submit",authenticate);
 $("auth-cancel").addEventListener("click",()=>{$("passphrase").value="";$("auth-dialog").close();});
-$("auth-dialog").addEventListener("close",()=>{$("passphrase").value="";if(view==="jarvis")voiceSession?.resume();});
+$("auth-dialog").addEventListener("close",()=>{$("passphrase").value="";$("confirm-passphrase").value="";if(view==="jarvis")voiceSession?.resume();});
 $("auth-button").addEventListener("click",async()=>{if (authorized()) {try { await rpc("sys_exit");token="";tokenUntil=0;toast("Authority dropped. Userspace may resume after traps are resolved.");await refresh();} catch(error){toast(error.message);} } else requireAuth();});
-$("trap-button").addEventListener("click",async()=>{try{const result=await rpc("sys_call",{request:"Operator requested kernel inspection"});toast(result.message);await refresh();requireAuth();}catch(error){toast(error.message);}});
+$("kernel-registry-button").addEventListener("click",openRegistry);
 async function togglePermission(capability,enabled) { if(!requireAuth()) return; try {await rpc("sys_perm_toggle",{capability_id:capability,enabled});await refresh();}catch(error){toast(error.message);} }
 async function resolveTrap(id,approved) { if(!requireAuth())return;try {await rpc("sys_resolve",{trap_id:id,approved});toast(approved?"Request reviewed and approved. No privileged action was automatically executed.":"Request rejected.");await refresh();}catch(error){toast(error.message);} }
 function renderState(s) {
   state = s;
-  $("auth-setup-command").textContent=s.auth_setup_command||"python3 -m agent_zero init";
   if (!authorized()) {token="";tokenUntil=0;}
+  if (s.mode === "kernel" && authorized() && view !== "kernel") showView("kernel");
+  else if ((s.mode !== "kernel" || !authorized()) && view === "kernel") showView("jarvis");
+  if (s.mode !== "userspace" && previousMode !== s.mode && !authorized()) requireAuth();
+  previousMode = s.mode;
   $("connection").replaceChildren(node("i","green-dot"),document.createTextNode(s.local_enabled?" LOCAL ONLINE":s.cloud_enabled?" ONLINE":" LOCAL PREVIEW"));
   const model = s.registry.cloud.find(m=>m.id===s.model);
   $("active-model").textContent=s.local_enabled?s.local_model:(model?.name||s.model);
@@ -123,7 +145,7 @@ function renderState(s) {
   $("local-budget").textContent=`${s.local_memory_gb} GB`;$("kernel-memory").textContent=`${s.local_memory_gb} GB`;
   $("uptime").textContent=duration(s.uptime);$("token-count").textContent=s.tokens.toLocaleString();$("spend").textContent=`$${s.spent_usd.toFixed(5)}`;
   $("authority").textContent=authorized()?`AUTHENTICATED / ${Math.ceil((tokenUntil-Date.now())/1000)}s REMAINING`:"READ-ONLY OBSERVER";
-  $("auth-button").textContent=authorized()?"◇ Drop authority":"◇ Authenticate";
+  $("auth-button").textContent=authorized()?"[ exit kernel ]":"[ authenticate ]";
   $("kernel-brain").textContent=`LOCAL ENGINE · ${s.local_model.toUpperCase()}`;
 
   const nextProcesses=JSON.stringify(s.processes||[]);
@@ -164,7 +186,7 @@ function renderState(s) {
 }
 async function refresh(){try{const response=await fetch("/api/status");const data=await response.json();if(!data.ok)throw new Error(data.error);renderState(data.result);}catch(error){$("connection").textContent="RUNTIME OFFLINE";}}
 function openRegistry(){if(!state)return toast("Waiting for local runtime.");void voiceSession?.pause();$("model-list").replaceChildren();for(const model of state.registry.cloud){const row=node("div","registry-entry"),info=node("div");info.append(node("h3","",model.name),node("small","",model.id),node("p","",`$${model.input_per_million} input / $${model.output_per_million} output per 1M`));const source=node("a","","Catalog source ↗");source.href=model.source;source.target="_blank";source.rel="noopener noreferrer";info.append(node("p","",model.role),node("p","registry-note",model.note),source);const b=node("button","",model.id===state.model?"ACTIVE":state.cloud_free_only&&!model.free?"PAID LOCKED":"SELECT");b.disabled=model.id===state.model||(state.cloud_free_only&&!model.free);b.addEventListener("click",async()=>{if(!authorized()){$("registry-dialog").close();requireAuth();return;}try{await rpc("sys_model_swap",{target_model_id:model.id});await refresh();openRegistry();toast("Model selected. Billing configuration is unchanged.");}catch(error){toast(error.message);}});row.append(info,b);$("model-list").append(row);}$("local-list").replaceChildren(...state.registry.local.map(m=>node("div","",`${m.id} · ${m.weights_gb} GB weights · ~${m.budget_gb} GB budget`)));if(!$("registry-dialog").open)$("registry-dialog").showModal();}
-$("registry-button").addEventListener("click",openRegistry);$("registry-nav").addEventListener("click",openRegistry);$("registry-close").addEventListener("click",()=>$("registry-dialog").close());$("registry-dialog").addEventListener("close",()=>{if(view==="jarvis")voiceSession?.resume();});
+$("registry-button").addEventListener("click",openRegistry);$("registry-close").addEventListener("click",()=>$("registry-dialog").close());$("registry-dialog").addEventListener("close",()=>{if(view==="jarvis")voiceSession?.resume();});
 $("kernel-form").addEventListener("submit",async e=>{e.preventDefault();const text=$("kernel-input").value.trim();if(!text)return;$("kernel-input").value="";const out=$("command-result");if(text==="help"){out.textContent="status · ps · tree · spawn TASK · fork TASK · exec PID · wait PID · signal PID TERM|STOP|CONT · reap PID · model ID · allow file_write · flush session · exit\nOther text is sent only to your installed local model as a proposal. No proposal executes automatically.\nUse the trap table to approve or reject requests.";return;}if(text!=="status"&&!requireAuth())return;const[command,...rest]=text.split(" "),arg=rest.join(" ");let method="status",params={};if(command==="exit"){method="sys_exit";}else if(command==="model"){method="sys_model_swap";params={target_model_id:arg};}else if(command==="allow"||command==="deny"){method="sys_perm_toggle";params={capability_id:arg,enabled:command==="allow"};}else if(command==="flush"){method="sys_mem_flush";params={scope:arg||"session"};}else if(command==="ps"){method="sys_proc_table";}else if(command==="tree"){method="sys_proc_tree";}else if(command==="spawn"||command==="fork"){method=command==="spawn"?"sys_spawn":"sys_fork";params={task:arg};}else if(command==="exec"||command==="wait"||command==="reap"||command==="info"){method={exec:"sys_exec",wait:"sys_wait",reap:"sys_reap",info:"sys_proc_info"}[command];params={pid:Number(arg)};}else if(command==="signal"){const [pid,signal]=arg.split(/\s+/);method="sys_signal";params={pid:Number(pid),signal:signal||"TERM"};}else if(command!=="status"){method="sys_parse";params={text};}out.textContent="PROCESSING…";try{const result=await rpc(method,params);if(method==="sys_exit"){token="";tokenUntil=0;}out.textContent=method==="status"?`MODE ${result.mode.toUpperCase()} / MODEL ${result.model}\nLOCAL ${result.local_model} / CLOUD ${result.cloud_enabled?"ON":"OFF"}\n${result.pending.length} PENDING TRAPS / ${result.tokens} TOKENS / $${result.spent_usd.toFixed(6)}`:JSON.stringify(result,null,2)+(method==="sys_parse"?"\nPROPOSAL ONLY / issue an explicit command to execute":"");await refresh();}catch(error){out.textContent=`DENIED / ${error.message}`;}});
 
 // The orb is procedural: no downloaded assets, GPU libraries, or paid generation.
@@ -184,5 +206,5 @@ function draw(now){if(!reducedMotion&&now-lastOrbFrame<32){orbFrame=requestAnima
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden){scheduleDraw();voiceSession?.resume();}else {cancelAnimationFrame(orbFrame);void voiceSession?.pause();}});scheduleDraw();
 setInterval(()=>{$("clock").textContent=new Date().toLocaleTimeString("en-GB");},1000);
-voiceSession = new VoiceSession({request:rpc,getState:()=>state,onStatus:renderVoicePhase,onError:toast,onSetup:voiceSetup,onWake:renderWake,isActive:()=>view==="jarvis"&&!document.hidden&&document.hasFocus()&&!document.querySelector("dialog[open]"),onTrap:()=>{showView("kernel");void refresh();requireAuth();}});
+voiceSession = new VoiceSession({request:rpc,getState:()=>state,onStatus:renderVoicePhase,onError:toast,onSetup:voiceSetup,onWake:renderWake,isActive:()=>view==="jarvis"&&!document.hidden&&document.hasFocus()&&!document.querySelector("dialog[open]"),onTrap:()=>{void refresh();requireAuth();}});
 refresh();setInterval(refresh,2000);

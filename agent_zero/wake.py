@@ -27,3 +27,14 @@ def sleep_action(text: str) -> str | None:
     if normalized in ("stop listening", "disable wake word", "disable wake phrase"):
         return "stop"
     return None
+
+
+def kernel_request(text: str) -> bool:
+    """Recognize explicit mode changes locally; never infer authorization."""
+    normalized = re.sub(r"\s+", " ", text.casefold().strip().rstrip(".!?")).strip()
+    if normalized == "/kernel":
+        return True
+    return bool(re.fullmatch(
+        r"(?:jarvis[, ]+)?(?:(?:can|could|would) you |please )?"
+        r"(?:(?:system call:? )?enter|go (?:in|into)|switch to|drop (?:down )?(?:to|into)|run in) "
+        r"(?:the )?(?:kernel(?: mode)?|cardinal(?: mode)?)(?: please)?", normalized))

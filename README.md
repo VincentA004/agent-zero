@@ -1,6 +1,6 @@
 # Agent Zero
 
-A Python supervisory runtime with two faces: **JARVIS**, a voice-only cyan floating intelligence orb, and **Cardinal**, a green/amber terminal-inspired administrative console. Built from the v1.2 PRD, with an 8–16 GB local inference target.
+A Python supervisory runtime with one window and two operating modes: **JARVIS**, a voice-only cyan floating intelligence orb, and **Cardinal**, a bare green terminal administrative console. Built from the v1.2 PRD, with an 8–16 GB local inference target.
 
 **Parent JARVIS and child agents use a Unix-inspired process supervisor and a shared cloud gateway.** Fresh configurations start in a free local preview; this prepared checkout has live-tested free OpenRouter conversation. Local Qwen is available independently for Cardinal and as an explicit userspace fallback. No API key, model download, microphone access, cloud speech, or inference request is needed to explore it. Python handles the runtime, authentication, storage, Unix IPC, agent graph, file tools, local inference adapter, voice routing, and native TUI. The browser uses plain HTML/CSS/JavaScript for visuals; there is no frontend build step or CDN.
 
@@ -12,7 +12,7 @@ This prepared checkout has the existing `qwen3.5:9b` and the free tiny English s
 .venv/bin/python -m agent_zero --home .agent-zero serve --graph
 ```
 
-The model files and runtime state live in ignored `.agent-zero/`. Enable the **Hey Jarvis** ear control in the app and allow microphone access once per session. This prepared checkout now uses **Nemotron 3 Ultra Free** through OpenRouter, with `cloud_free_only: true`, a **$0 budget**, zero provider price ceilings and no paid fallback. The API key is stored privately outside Git. Offline speech recognition remains local. You can also double-click `dist/Agent Zero.app`, or run `.venv/bin/python -m agent_zero --home .agent-zero desktop`. The launcher starts the graph-enabled daemon if needed and opens a dedicated Chrome app window. Chrome is installed on this Mac; other systems fall back to the default browser. This launcher depends on this checkout and its virtual environment; it is not a standalone signed installer.
+The model files and runtime state live in ignored `.agent-zero/`. Enable the **Hey Jarvis** ear control in the app and allow microphone access once per session. This prepared checkout now uses **Nemotron 3 Ultra Free** through OpenRouter, with `cloud_free_only: true`, a **$0 budget**, zero provider price ceilings and no paid fallback. The API key is stored privately outside Git. Offline speech recognition remains local. You can also double-click `dist/Agent Zero.app`, or run `.venv/bin/python -m agent_zero --home .agent-zero desktop`. The launcher starts the graph-enabled Python daemon if needed and opens a native ARM64 Electron window. Install the free desktop dependency with `npm ci` (Node 22.12+). The `.app` bundles Electron and is locally ad-hoc signed; it still depends on this checkout and Python virtual environment. There is no Chrome app window or browser fallback in desktop mode.
 
 
 Python 3.11+ on macOS or Linux:
@@ -23,7 +23,7 @@ python3 -m agent_zero serve
 
 Open [the local interface](http://127.0.0.1:8420). The main screen is a voice interface with no text chat or transcript. Click the orb or microphone, or hold Space, to speak after offline STT is configured. A small settings dialog explains missing voice setup. Use the wake control to enable “Hey Jarvis” once per browser session; the microphone is not opened until you opt in and grant browser permission. In preview mode, spoken replies are deterministic and no conversation model is called.
 
-Configure your own kernel passphrase in another terminal, then use **Authenticate** in Cardinal:
+Click the small Cardinal control, press **Cmd+K** (Ctrl+K elsewhere), or say “enter kernel mode.” A command drawer drops over the orb. On first use, create and confirm a passphrase of at least 12 characters; later, type it or use **Speak passphrase locally**. After verification, the same window becomes Cardinal. Type `exit` or select **exit kernel** to return to JARVIS. You can also set or replace the passphrase from a terminal:
 
 ```sh
 .venv/bin/python -m agent_zero --home .agent-zero init
@@ -70,7 +70,7 @@ Authenticate before administrative actions. `status` and the dashboard are read-
 | `exit` | Revoke authority and restore userspace when no traps remain |
 | Other natural language | Ask the installed Ollama model for a JSON syscall **proposal**; never automatically executes |
 
-Request a userspace trap using the browser's **Request userspace trap** control, or say “Enter kernel mode” through the configured voice interface. The underlying chat API also accepts `/kernel` or `System Call: Enter Kernel Mode`. The daemon pauses Ring 3, saves the request, and cancels userspace audio. Authenticate, approve or reject the review, then drop authority to resume. Approval records a review decision; it does not execute the requested privileged action. Issue the intended command explicitly. In the native console, `approve ID` and `reject ID` accept unambiguous ID prefixes.
+Say “Enter kernel mode” or “switch to Cardinal” through the configured voice interface to request a userspace trap and open the authentication drawer. The underlying chat API also accepts `/kernel` or `System Call: Enter Kernel Mode`. The daemon pauses Ring 3, saves the request, and cancels userspace audio. Authenticate, approve or reject the review, then drop authority to resume. Approval records a review decision; it does not execute the requested privileged action. Issue the intended command explicitly. In the native console, `approve ID` and `reject ID` accept unambiguous ID prefixes.
 
 The Python syscall layer also exposes `sys_mount_sandbox`, with a host directory, mount alias, and `ro`/`rw` mode. Mounts are session-only and cannot expose the runtime directory or any ancestor containing it. Shell and network tool adapters are not implemented and cannot be enabled.
 
@@ -102,7 +102,7 @@ The gateway enforces a maximum output length, reserves conservative estimated to
 
 ## Voice
 
-The main JARVIS application is an orb with microphone/mute/stop controls and optional compact telemetry. There is no text composer, chat transcript, or prompt panel. Cardinal retains its text-based administrative interface.
+The main JARVIS application is an orb with microphone/mute/stop controls and optional compact telemetry. There is no text composer, chat transcript, or prompt panel. After authentication, this same surface becomes the text-based Cardinal console; there are no workspace tabs or separate kernel pane.
 
 Start a conversation explicitly: click the orb or microphone to start, click again to finish, or hold Space and release to send. After each spoken reply, JARVIS automatically listens for a follow-up even if wake-word monitoring is disabled. Six seconds without speech ends the active conversation; if wake monitoring was enabled, it returns to dormant wake detection, otherwise the microphone stays off. Clips stop after 15 seconds or about 1.3 seconds of silence following speech. Stop, Escape, leaving the view, or losing focus during capture releases the audio tracks and discards the recording. Audio is sent only to the loopback Python daemon, which transcribes it offline and deletes the temporary recording. No browser cloud speech recognition is used.
 
@@ -142,3 +142,5 @@ node --test tests/voice_state.test.mjs
 The suite checks privilege enforcement, expiry, lockout, sandbox traversal/symlinks, mounted secrets, read-only mounts, permission toggles, trap persistence, cost rejection before networking, audio ownership, CSRF protections, and preview behavior. With the agent extra installed it also checks a real LangGraph interrupt surviving graph reconstruction and authenticated resume. The automated suite uses temporary state, stubbed inference, local sockets, and real macOS worker policy tests. Separate live integration checks exercised the already installed Qwen model reading a note and correctly reporting a denied write. They incur no inference cost.
 
 See [implementation status](docs/implementation-status.md) for the remaining work.
+
+Desktop development: `npm ci`, then `npm start`. Build a macOS bundle with `.venv/bin/python -m agent_zero --home .agent-zero build-app --output "dist/Agent Zero.app"` (destination must not exist). Agent logic remains Python; Electron only owns the native window, local UI and microphone permission prompt. Renderer Node integration is disabled, context isolation and sandboxing are enabled, navigation is restricted to the runtime origin, and new windows are blocked.

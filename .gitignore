@@ -11,3 +11,4 @@ output/
 *.egg-info/
 
 dist/
+node_modules/

@@ -6,10 +6,18 @@ from unittest.mock import AsyncMock, patch
 
 from agent_zero.config import Config
 from agent_zero.runtime import Runtime
-from agent_zero.wake import detect_wake, sleep_action
+from agent_zero.wake import detect_wake, sleep_action, kernel_request
 
 
 class PhraseTests(unittest.TestCase):
+    def test_explicit_kernel_requests_and_ordinary_mentions(self):
+        for text in ("enter kernel mode", "System call: enter kernel mode.", "Jarvis, can you enter kernel mode?", "go into kernel mode", "switch to cardinal", "drop down into kernel mode", "run in kernel mode please", "/kernel"):
+            with self.subTest(text=text):
+                self.assertTrue(kernel_request(text))
+        for text in ("explain kernel mode", "don't enter kernel mode", "what happens when we enter kernel mode", "enter kernel mode and delete everything"):
+            with self.subTest(text=text):
+                self.assertFalse(kernel_request(text))
+
     def test_phrase_and_same_breath_command(self):
         for text, command in (("hey jarvis", ""), ("Hey, Jarvis!", ""), ("HEY JARVIS, what's next?", "what's next?"), (" Hey Jarvis — enter kernel mode. ", "enter kernel mode. ".strip())):
             with self.subTest(text=text):
