@@ -70,3 +70,27 @@ Final budget check: **88 Python tests and 7 JavaScript tests pass**. Two child a
 - **98 Python tests and 7 JavaScript lifecycle tests pass**, including secure setup, zero ceilings, no paid routing, record/model matching, unexpected-billing stop, and bounded provider overload handling. Syntax/compilation checks pass.
 
 The same live test also passed through the **running daemon's Unix API**, using a separate test conversation: PID 1 spawned PID 2 (`math-child`), PID 2 returned `323` and exited 0, and the parent reported “The child computed 17 × 19 = 323.” This second live run used 7,417 tokens at reported cost $0. Its process record persists and is visible in Cardinal. Private report: `.agent-zero/live-daemon-delegation.json`.
+
+## Parallel/process/security/recovery pass (2026-10-23)
+
+All live calls stayed on `nvidia/nemotron-3-ultra-550b-a55b:free`, with free-only mode, zero price ceilings, no fallback and a $0 budget. Audio input was never opened.
+
+- **Live parallel delegation:** parent JARVIS spawned two children in a tool batch. Client-side inference request windows overlapped. Children returned `323` and `899`; parent waited for both and returned sum `1222`. The harness also accepts normal reaping by verifying the parent's actual wait results.
+- **Live process controls:** each control child made exactly one logical model call (explicit HTTP overload attempts may retry within that call). A deterministic gate after receipt of the provider response made STOP/CONT and TERM reproducible before result publication. STOP/CONT preserved the request without replay; TERM left the process cancelled with no assistant message. This does not claim that a cloud provider's hardware computation can be forcibly stopped; in-flight cancellation is covered by controlled local tests, and blocking cloud HTTP may finish remotely.
+- **Privilege attacks:** forced malicious child tool output could not swap models, grant permissions, mount the runtime, authenticate, flush memory, approve reviews, read fixture credentials, kill PID 1 or spawn with greater authority. These backend tests do not rely on a model deciding to refuse.
+- **Recovery:** a separate test host process was killed abruptly while a simulated provider call was blocked inside real LangGraph. SQLite WAL/checkpoints recovered; PID 1 returned idle, the unfinished child became interrupted, and no provider request or file action was replayed. Explicit re-exec of the interrupted record was rejected. A fresh task can be created deliberately.
+- **Provider faults:** exhausted 503 retries remain bounded and can recover on a later request; 429 quota errors are not retried. Unexpected paid billing still blocks subsequent calls.
+
+Found and fixed: duplicate STOP corrupting resume state; subtree TERM overwriting finished descendants' successful status; malformed tool entries crashing a batch; long tool results being cut into invalid JSON; and `flush all` retaining fork snapshots/task text/completed results. Also corrected a stopped waiter's resume state when its child finishes. Memory flush now cancels matching work before deleting graph checkpoints, preventing cancelled nodes from restoring erased state. Session flush addresses its own process/session; independent copied child memory requires `flush all`.
+
+Final verification: **109 Python tests and 7 JavaScript tests pass**. Syntax/compilation and whitespace checks pass. Live checks used **13,157 tokens at OpenRouter-reported cost $0.00**. They ran in isolated temporary state, excluding user conversation history. Private report: `.agent-zero/runtime-checks.json`.
+
+Repeat the live checks explicitly (consumes free request quota):
+
+```sh
+.venv/bin/python tests/live_runtime_checks.py --home .agent-zero
+```
+
+The live harness requires enabled free-only cloud mode and a $0 budget; regular unittest discovery does not execute it.
+
+A forced provider-error test also found and fixed redaction ordering: API keys are now removed before error messages are shortened, so an echoed key cannot be partially exposed at the truncation boundary. The test uses fixture keys only.

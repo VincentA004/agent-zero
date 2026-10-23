@@ -66,7 +66,7 @@ Authenticate before administrative actions. `status` and the dashboard are read-
 | `status` | Inspect actual runtime state |
 | `model nvidia/nemotron-3-ultra-550b-a55b:free` | Select the default free cloud model; paid selections are blocked in free-only mode |
 | `allow file_write` / `deny file_write` | Change the file tool capability |
-| `flush session` / `flush all` | Clear conversation state (and graph checkpoints when enabled) |
+| `flush session` / `flush all` | Clear conversation state and graph checkpoints; `all` also clears fork snapshots/cached child results and cancels their work |
 | `exit` | Revoke authority and restore userspace when no traps remain |
 | Other natural language | Ask the installed Ollama model for a JSON syscall **proposal**; never automatically executes |
 

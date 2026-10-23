@@ -228,9 +228,14 @@ class ProcessTable:
             except TimeoutError:
                 pass
             finally:
-                if actor and self.get(actor)["state"] == "waiting":
-                    self.get(actor)["state"] = previous
-                    self.save(self.get(actor))
+                if actor:
+                    caller = self.get(actor)
+                    if caller["state"] == "waiting":
+                        caller["state"] = previous
+                        self.save(caller)
+                    elif caller["state"] == "stopped" and caller.get("resume_state") == "waiting":
+                        caller["resume_state"] = previous
+                        self.save(caller)
         return self.info(pid, actor)
 
     async def signal(self, pid, signal, actor=0):
@@ -253,6 +258,8 @@ class ProcessTable:
         if signal in ("TERM", "KILL"):
             tasks = []
             for child in targets:
+                if child["state"] in TERMINAL:
+                    continue
                 task = self.tasks.get(child["pid"])
                 if task:
                     task.cancel()
@@ -271,11 +278,11 @@ class ProcessTable:
             for child in targets:
                 if child["state"] in TERMINAL:
                     continue
-                if signal == "STOP":
+                if signal == "STOP" and child["state"] != "stopped":
                     child["resume_state"] = child["state"]
                     self.gates[child["pid"]].clear()
                     child["state"] = "stopped"
-                elif child["state"] == "stopped":
+                elif signal == "CONT" and child["state"] == "stopped":
                     self.gates[child["pid"]].set()
                     child["state"] = child.pop("resume_state", "runnable")
                 self.save(child)
@@ -294,6 +301,20 @@ class ProcessTable:
         self.done.pop(pid, None)
         self.gates.pop(pid, None)
         return result
+
+    async def flush_memory(self, session, scope):
+        # Called under kernel authority. Stop tasks before deleting checkpoints so
+        # cancelled graph nodes cannot write erased state back into the saver.
+        selected = [p for p in self.records.values() if p["pid"] != 1 and p["state"] != "reaped"
+                    and (scope == "all" or p["session"] == session)]
+        for process in selected:
+            if process["state"] not in TERMINAL:
+                await self.signal(process["pid"], "TERM", actor=0)
+        for process in self.records.values():
+            if process["pid"] == 1 or (scope != "all" and process["session"] != session):
+                continue
+            process.update(task="[cleared]", result="", error="", snapshot=[])
+            self.save(process)
 
     async def interrupt_all(self):
         self.ready.clear()

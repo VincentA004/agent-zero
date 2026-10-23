@@ -26,13 +26,15 @@ def request_json(url, payload, headers=None, timeout=60):
         try:
             error = json.loads(exc.read(16000)).get("error", {})
             if isinstance(error.get("message"), str):
-                message = error["message"][:300]
+                message = error["message"]
         except (ValueError, AttributeError):
             pass
+        finally:
+            exc.close()
         authorization = (headers or {}).get("Authorization", "")
         if authorization.startswith("Bearer "):
             message = message.replace(authorization[7:], "[REDACTED]")
-        raise ProviderError(exc.code, message) from None
+        raise ProviderError(exc.code, message[:300]) from None
     except urllib.error.URLError:
         raise RuntimeError("Inference provider unavailable; check local configuration") from None
 
@@ -91,7 +93,7 @@ class OpenRouter:
                         raise RuntimeError("Unexpected free-route billing on an error response; requests blocked")
                     code = error.get("code", 0)
                     code = code if type(code) is int else 0
-                    message = str(error.get("message", "Inference provider returned an error"))[:300].replace(key, "[REDACTED]")
+                    message = str(error.get("message", "Inference provider returned an error")).replace(key, "[REDACTED]")[:300]
                     raise ProviderError(code, message)
                 break
             except ProviderError as exc:

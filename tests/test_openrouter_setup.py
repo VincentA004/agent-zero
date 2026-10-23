@@ -126,3 +126,46 @@ class ProviderErrorTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(request.call_count,1)
             finally:
                 runtime.store.db.close()
+
+    async def test_exhausted_free_overload_can_recover_on_later_request(self):
+        from unittest.mock import AsyncMock
+        from agent_zero.engines import ProviderError
+        with tempfile.TemporaryDirectory() as temp:
+            runtime=Runtime(Config(root=Path(temp),cloud_enabled=True,cloud_free_only=True,session_budget_usd=0))
+            free=next(m for m in runtime.registry['cloud'] if m['id']==FREE_MODEL)
+            overloaded={'error':{'code':503,'message':'Temporarily overloaded'}}
+            healthy={'choices':[{'message':{'content':'Recovered later'}}],'usage':{'cost':0}}
+            try:
+                with patch.dict(os.environ,{'OPENROUTER_API_KEY':'fixture'}),patch('agent_zero.engines.request_json',side_effect=[overloaded,overloaded,overloaded,healthy]) as request,patch('agent_zero.engines.asyncio.sleep',new_callable=AsyncMock):
+                    with self.assertRaises(ProviderError):
+                        await runtime.cloud.chat(FREE_MODEL,[],free)
+                    self.assertEqual(request.call_count,3)
+                    self.assertEqual(await runtime.cloud.chat(FREE_MODEL,[],free),'Recovered later')
+                self.assertEqual(request.call_count,4)
+                self.assertEqual(runtime.cloud.spent,0)
+                self.assertFalse(runtime.cloud.billing_fault)
+            finally:
+                runtime.store.db.close()
+
+    async def test_key_redaction_happens_before_error_message_truncation(self):
+        import io
+        import urllib.error
+        from agent_zero.engines import ProviderError,request_json
+        secret='fixture-'+('S'*100)
+        message=('x'*280)+secret
+        with tempfile.TemporaryDirectory() as temp:
+            runtime=Runtime(Config(root=Path(temp),cloud_enabled=True,cloud_free_only=True,session_budget_usd=0))
+            free=next(m for m in runtime.registry['cloud'] if m['id']==FREE_MODEL)
+            try:
+                with patch.dict(os.environ,{'OPENROUTER_API_KEY':secret}),patch('agent_zero.engines.request_json',return_value={'error':{'code':401,'message':message}}):
+                    with self.assertRaises(ProviderError) as caught:
+                        await runtime.cloud.chat(FREE_MODEL,[],free)
+                    self.assertNotIn('fixture-',str(caught.exception))
+                body=io.BytesIO(json.dumps({'error':{'message':message}}).encode())
+                error=urllib.error.HTTPError('https://openrouter.ai/api/v1/chat/completions',401,'Unauthorized',{},body)
+                with patch('agent_zero.engines.urllib.request.urlopen',side_effect=error):
+                    with self.assertRaises(ProviderError) as caught:
+                        request_json('https://openrouter.ai/api/v1/chat/completions',{}, {'Authorization':'Bearer '+secret})
+                    self.assertNotIn('fixture-',str(caught.exception))
+            finally:
+                runtime.store.db.close()

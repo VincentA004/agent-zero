@@ -62,6 +62,8 @@ async def tool_step(runtime, message):
         await runtime.processes.checkpoint()
         name = "invalid"
         try:
+            if not isinstance(call, dict) or not isinstance(call.get("function"), dict):
+                raise ValueError("Malformed tool call")
             function = call["function"]
             proposed_name, args = function["name"], function["arguments"]
             if not isinstance(proposed_name, str):
@@ -107,14 +109,42 @@ async def tool_step(runtime, message):
         except (ValueError, KeyError, TypeError, OSError, PermissionError, RuntimeError) as exc:
             runtime.store.audit("tool.denied", name)
             content = json.dumps({"error": str(exc)[:300]})
-        result = {"role": "tool", "tool_name": name, "content": content[:4000]}
-        if isinstance(call.get("id"), str):
+        content = bounded_result(content)
+        result = {"role": "tool", "tool_name": name, "content": content}
+        if isinstance(call, dict) and isinstance(call.get("id"), str):
             result["tool_call_id"] = call["id"]
         results.append(result)
         if escalation:
             break
     return results, escalation
 
+
+
+def bounded_result(content, limit=4000):
+    """Keep JSON valid when shortening untrusted file/tool data for the model."""
+    if len(content) <= limit:
+        return content
+    value = json.loads(content)
+    result = value.get("result")
+    if isinstance(result, str):
+        preview = result[:3000]
+        while len(json.dumps({"result": preview, "truncated": True}, ensure_ascii=False)) > limit:
+            preview = preview[:len(preview) // 2]
+        return json.dumps({"result": preview, "truncated": True}, ensure_ascii=False)
+    if isinstance(result, dict):
+        # Preserve process identity/status and a useful result excerpt.
+        summary = {key: result[key] for key in ("pid", "ppid", "state", "exit_code", "result", "error") if key in result}
+        if summary:
+            for key, item in summary.items():
+                if isinstance(item, str):
+                    summary[key] = item[:1500]
+            encoded = json.dumps({"result": summary, "truncated": True}, ensure_ascii=False)
+            if len(encoded) <= limit:
+                return encoded
+    preview = content[:2500]
+    while len(json.dumps({"preview": preview, "truncated": True}, ensure_ascii=False)) > limit:
+        preview = preview[:len(preview) // 2]
+    return json.dumps({"preview": preview, "truncated": True}, ensure_ascii=False)
 
 async def run_loop(runtime, messages, model, record):
     messages = list(messages)
