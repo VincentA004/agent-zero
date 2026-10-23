@@ -26,15 +26,15 @@ export class VoiceSession {
 
   rest() {
     clearTimeout(this.wakeTimer);
-    if (this.wakeEnabled && !this.paused && this.isActive() && this.baseline() === "idle") {
+    if ((this.interactive || this.wakeEnabled) && !this.paused && this.isActive() && this.baseline() === "idle") {
       this.setPhase(this.interactive ? "awake" : "dormant");
       this.wakeTimer = setTimeout(() => {
-        if (this.wakeEnabled && !this.paused && this.isActive()) {
+        if ((this.interactive || this.wakeEnabled) && !this.paused && this.isActive()) {
           void this.start({ kind: this.interactive ? "turn" : "wake", automatic: true, followup: this.interactive });
         }
       }, 300);
     } else {
-      this.setPhase(this.wakeEnabled && this.baseline() === "idle" ? "paused" : this.baseline());
+      this.setPhase((this.interactive || this.wakeEnabled) && this.baseline() === "idle" ? "paused" : this.baseline());
     }
   }
 
@@ -42,7 +42,7 @@ export class VoiceSession {
     if (state.mode !== "userspace") {
       if (this.phase !== "suspended") void this.pause();
     } else if (["idle", "unavailable", "suspended", "paused"].includes(this.phase)) {
-      if (this.wakeEnabled && this.isActive()) { this.paused = false; this.rest(); }
+      if ((this.interactive || this.wakeEnabled) && this.isActive()) { this.paused = false; this.rest(); }
       else this.setPhase(this.baseline());
     }
   }
@@ -74,9 +74,9 @@ export class VoiceSession {
       return;
     }
     await this.cancel({ disableWake: false });
-    if (automatic && (!this.wakeEnabled || this.paused || !this.isActive())) return;
+    if (automatic && ((!this.interactive && !this.wakeEnabled) || this.paused || !this.isActive())) return;
     this.paused = false;
-    if (kind === "turn" && this.wakeEnabled) this.interactive = true;
+    if (kind === "turn") this.interactive = true;
     const epoch = ++this.epoch;
     this.setPhase("starting");
     let stream, context;
@@ -124,6 +124,7 @@ export class VoiceSession {
       if (this.capture?.epoch === epoch) { clearInterval(this.capture.timer); this.capture = null; }
       if (epoch !== this.epoch) return;
       this.wakeEnabled = false;
+      this.interactive = false;
       this.onWake(false);
       this.setPhase(this.baseline());
       this.onError(error.name === "NotAllowedError" ? "Microphone access was denied. Enable it in the browser’s site settings to speak." : "Could not open the microphone. Check the input device and browser permissions.");
@@ -190,10 +191,14 @@ export class VoiceSession {
         else this.rest();
         return;
       }
+      // A microphone click starts the same conversational session as a wake
+      // phrase, without silently enabling dormant wake-word monitoring.
+      this.interactive = true;
       await this.speak(result.message, capture.epoch);
     } catch (error) {
       if (capture.epoch === this.epoch && error.name !== "AbortError") {
         // Stop on setup/decoder errors rather than repeatedly loading a bad model.
+        this.interactive = false;
         if (capture.kind === "wake") { this.wakeEnabled = false; this.onWake(false); }
         this.rest();
         this.onError(error.message || "The voice turn failed. Check voice settings.");
@@ -238,13 +243,13 @@ export class VoiceSession {
   async pause() {
     this.paused = true;
     await this.cancel({ disableWake: false });
-    this.setPhase(this.baseline() === "suspended" ? "suspended" : this.wakeEnabled ? "paused" : this.baseline());
+    this.setPhase(this.baseline() === "suspended" ? "suspended" : (this.interactive || this.wakeEnabled) ? "paused" : this.baseline());
   }
 
   resume() {
     this.paused = false;
     if (this.capture || this.controller || ["starting", "speaking", "thinking", "checking"].includes(this.phase)) return;
-    if (this.wakeEnabled && this.isActive()) this.rest();
+    if ((this.interactive || this.wakeEnabled) && this.isActive()) this.rest();
   }
 
   toggleMute() {

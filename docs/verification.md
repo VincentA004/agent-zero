@@ -94,3 +94,10 @@ Repeat the live checks explicitly (consumes free request quota):
 The live harness requires enabled free-only cloud mode and a $0 budget; regular unittest discovery does not execute it.
 
 A forced provider-error test also found and fixed redaction ordering: API keys are now removed before error messages are shortened, so an echoed key cannot be partially exposed at the truncation boundary. The test uses fixture keys only.
+
+
+## Conversational follow-up fix (2026-10-23)
+
+A request started with the microphone button previously behaved as one-shot unless wake monitoring was enabled. Conversational state is now independent of the wake toggle: successful manual and wake-triggered replies both arm follow-up capture after local speech ends, including muted output. Wake monitoring is not silently enabled by a manual conversation. Focus pause/resume preserves conversational intent; Stop/Escape and sleep still end it. Capture failures stop conversational rearming. The existing six-second idle timeout releases the microphone and returns to wake detection only when explicitly enabled.
+
+**13 JavaScript lifecycle tests pass**, including simulated local speech completion, manual muted replies, automatic MediaRecorder capture with wake disabled, quiet idle timeout without uploads, focus resume, existing wake behavior and credential routing. Audio APIs are mocked; no physical microphone or cloud inference was used. Browser and desktop app windows must reload their already loaded JS once (Cmd+R).

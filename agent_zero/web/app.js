@@ -37,7 +37,7 @@ function voiceSetup() {
   $("voice-setup-dialog").showModal();
 }
 function renderVoicePhase(phase) {
-  const labels = {idle:"STANDBY",unavailable:"VOICE SETUP",starting:"OPENING MICROPHONE",dormant:"DORMANT · HEY JARVIS",checking:"DORMANT · HEY JARVIS",awake:"AWAKE",paused:"WAKE PAUSED",listening:"LISTENING",thinking:"THINKING",speaking:"SPEAKING",suspended:"SUSPENDED"};
+  const labels = {idle:"STANDBY",unavailable:"VOICE SETUP",starting:"OPENING MICROPHONE",dormant:"DORMANT · HEY JARVIS",checking:"DORMANT · HEY JARVIS",awake:"AWAKE",paused:"VOICE PAUSED",listening:"LISTENING",thinking:"THINKING",speaking:"SPEAKING",suspended:"SUSPENDED"};
   $("jarvis-view").dataset.phase = phase;
   $("voice-status").textContent = labels[phase] || "STANDBY";
   busy = phase === "thinking";
