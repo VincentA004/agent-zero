@@ -39,6 +39,14 @@ class Runtime:
         self.registry = json.loads(Path(__file__).with_name("registry.json").read_text())
         desired_model = self.store.setting("model", config.model)
         self.model = desired_model if desired_model in {model["id"] for model in self.registry["cloud"]} else self.registry["recommended_default"]
+        if config.cloud_free_only and not any(m["id"] == self.model and m.get("free") and m["id"].endswith(":free")
+                                             and m["input_per_million"] == 0 and m["output_per_million"] == 0 for m in self.registry["cloud"]):
+            free_candidates = sorted(self.registry["cloud"], key=lambda m: m["id"] != self.registry.get("recommended_free"))
+            free = next((m for m in free_candidates if m.get("free") and m["id"].endswith(":free")
+                         and m["input_per_million"] == 0 and m["output_per_million"] == 0), None)
+            if not free:
+                raise ValueError("No verified zero-price model is available for free-only mode")
+            self.model = free["id"]
         if desired_model and desired_model != self.model:
             self.store.set_setting("model", self.model)
             self.store.audit("model.registry_migration", f"{desired_model} -> {self.model}")
@@ -51,7 +59,8 @@ class Runtime:
         self.started = time.monotonic()
         self.graph = None
         self.processes = ProcessTable(self)
-        self.store.audit("daemon.ready", "Paid inference " + ("enabled" if config.cloud_enabled else "disabled"))
+        cloud_mode = "Cloud inference disabled" if not config.cloud_enabled else "OpenRouter free-only; paid inference blocked" if config.cloud_free_only else "Paid inference enabled"
+        self.store.audit("daemon.ready", cloud_mode)
 
     async def expire_authority(self):
         if self.audio.mode == "kernel" and not self.auth.expire():
@@ -69,7 +78,7 @@ class Runtime:
         except ImportError:
             pass
         return {
-            "mode": self.audio.mode, "cloud_enabled": self.config.cloud_enabled,
+            "mode": self.audio.mode, "cloud_enabled": self.config.cloud_enabled, "cloud_free_only": self.config.cloud_free_only,
             "local_enabled": self.config.local_enabled,
             "active_engine": "ollama" if self.config.local_enabled else "openrouter" if self.config.cloud_enabled else "preview",
             "file_worker_isolated": self.worker.isolated,
@@ -162,6 +171,10 @@ class Runtime:
                 target = params.get("target_model_id")
                 if target not in {m["id"] for m in self.registry["cloud"]}:
                     raise ValueError("Model is not in the researched registry")
+                record = next(m for m in self.registry["cloud"] if m["id"] == target)
+                if self.config.cloud_free_only and (not record.get("free") or not target.endswith(":free")
+                        or record["input_per_million"] != 0 or record["output_per_million"] != 0):
+                    raise PermissionError("Free-only mode prevents selecting a paid model")
                 self.model = target
                 self.processes.get(1)["model"] = target
                 self.processes.save(self.processes.get(1))

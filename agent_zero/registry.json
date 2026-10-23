@@ -31,8 +31,22 @@
       "note": "Promotional provider rate. Lower published quality than GLM. Requests fail if no provider meets these price ceilings."
     },
     {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "name": "Nemotron 3 Ultra \u00b7 Free",
+      "role": "Free default \u00b7 delegation verified",
+      "license": "See upstream model card",
+      "input_per_million": 0,
+      "output_per_million": 0,
+      "context": 1000000,
+      "verified": true,
+      "free": true,
+      "disable_reasoning": true,
+      "source": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free",
+      "note": "Fixed free route; real parent/child LangGraph delegation verified at $0. No paid fallback. NVIDIA free endpoint logs prompts under its trial terms; avoid confidential content."
+    },
+    {
       "id": "google/gemma-4-26b-a4b-it:free",
-      "name": "Gemma 4 26B A4B · Free",
+      "name": "Gemma 4 26B A4B \u00b7 Free",
       "role": "Free experiment",
       "license": "Apache-2.0",
       "input_per_million": 0,
@@ -41,11 +55,27 @@
       "verified": true,
       "free": true,
       "source": "https://openrouter.ai/google/gemma-4-26b-a4b-it:free",
-      "note": "Fixed free route with zero price ceilings. Quotas and provider availability apply. No paid fallback."
+      "note": "Fixed free route with zero price ceilings. Quotas and provider availability apply. No paid fallback.",
+      "disable_reasoning": true
     }
   ],
   "local": [
-    {"id":"qwen3.5:4b","name":"Qwen3.5 4B","role":"Conservative local default","weights_gb":"3.3–4.0","budget_gb":8,"source":"https://ollama.com/library/qwen3.5"},
-    {"id":"qwen3.5:9b","name":"Qwen3.5 9B","role":"Larger local option","weights_gb":"6.6–7.6","budget_gb":12,"source":"https://ollama.com/library/qwen3.5"}
-  ]
+    {
+      "id": "qwen3.5:4b",
+      "name": "Qwen3.5 4B",
+      "role": "Conservative local default",
+      "weights_gb": "3.3\u20134.0",
+      "budget_gb": 8,
+      "source": "https://ollama.com/library/qwen3.5"
+    },
+    {
+      "id": "qwen3.5:9b",
+      "name": "Qwen3.5 9B",
+      "role": "Larger local option",
+      "weights_gb": "6.6\u20137.6",
+      "budget_gb": 12,
+      "source": "https://ollama.com/library/qwen3.5"
+    }
+  ],
+  "recommended_free": "nvidia/nemotron-3-ultra-550b-a55b:free"
 }

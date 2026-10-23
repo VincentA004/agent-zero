@@ -2,7 +2,7 @@
 
 A Python supervisory runtime with two faces: **JARVIS**, a voice-only cyan floating intelligence orb, and **Cardinal**, a green/amber terminal-inspired administrative console. Built from the v1.2 PRD, with an 8–16 GB local inference target.
 
-**Parent JARVIS and child agents use a Unix-inspired process supervisor and a shared cloud gateway.** Fresh configurations start in a free local preview; local Qwen is available independently for Cardinal and as an explicit userspace fallback. No API key, model download, microphone access, cloud speech, or inference request is needed to explore it. Python handles the runtime, authentication, storage, Unix IPC, agent graph, file tools, local inference adapter, voice routing, and native TUI. The browser uses plain HTML/CSS/JavaScript for visuals; there is no frontend build step or CDN.
+**Parent JARVIS and child agents use a Unix-inspired process supervisor and a shared cloud gateway.** Fresh configurations start in a free local preview; this prepared checkout has live-tested free OpenRouter conversation. Local Qwen is available independently for Cardinal and as an explicit userspace fallback. No API key, model download, microphone access, cloud speech, or inference request is needed to explore it. Python handles the runtime, authentication, storage, Unix IPC, agent graph, file tools, local inference adapter, voice routing, and native TUI. The browser uses plain HTML/CSS/JavaScript for visuals; there is no frontend build step or CDN.
 
 ## Start
 
@@ -12,7 +12,7 @@ This prepared checkout has the existing `qwen3.5:9b` and the free tiny English s
 .venv/bin/python -m agent_zero --home .agent-zero serve --graph
 ```
 
-The model files and runtime state live in ignored `.agent-zero/`. Enable the **Hey Jarvis** ear control in the app and allow microphone access once per session. Cloud inference is disabled. Speech recognition runs locally; model conversation requires explicit cloud setup or local fallback configuration. You can also double-click `dist/Agent Zero.app`, or run `.venv/bin/python -m agent_zero --home .agent-zero desktop`. The launcher starts the graph-enabled daemon if needed and opens a dedicated Chrome app window. Chrome is installed on this Mac; other systems fall back to the default browser. This launcher depends on this checkout and its virtual environment; it is not a standalone signed installer.
+The model files and runtime state live in ignored `.agent-zero/`. Enable the **Hey Jarvis** ear control in the app and allow microphone access once per session. This prepared checkout now uses **Nemotron 3 Ultra Free** through OpenRouter, with `cloud_free_only: true`, a **$0 budget**, zero provider price ceilings and no paid fallback. The API key is stored privately outside Git. Offline speech recognition remains local. You can also double-click `dist/Agent Zero.app`, or run `.venv/bin/python -m agent_zero --home .agent-zero desktop`. The launcher starts the graph-enabled daemon if needed and opens a dedicated Chrome app window. Chrome is installed on this Mac; other systems fall back to the default browser. This launcher depends on this checkout and its virtual environment; it is not a standalone signed installer.
 
 
 Python 3.11+ on macOS or Linux:
@@ -80,9 +80,25 @@ See [the dated model research](docs/model-research.md) for primary-source links,
 
 The portable conservative local default is `qwen3.5:4b` with **4,096 context** and one request at a time. This Mac already has 9B installed, so the prepared project config selects **Qwen3.5 9B** for Cardinal/local fallback. Set `local_enabled: true` to use an installed model for conversation; local mode takes priority over cloud mode and never falls back to a cloud service. `qwen3.5:9b` is an option nearer 12–16 GB. Model weight sizes exclude KV cache, runtime overhead, and audio models. `local_memory_gb` is checked against Ollama’s reported resident size; inference pauses below 1.5 GB available host RAM. This is **not an enforced OS memory limit** or a guarantee against transient allocation spikes. With 4K context, the installed Q4_K_M 9B model reported 5.14 GiB resident in a live test. Metrics are available in daemon status. No Ollama language model is downloaded by the daemon. An explicitly configured local conversation loads the already installed model as needed. Ollama must already be running and the exact model must already be installed before local conversation or natural-language kernel parsing can work. Direct MLX remains an interchangeable adapter follow-up; no speculative HTTP latency claims are assumed.
 
-Paid cloud inference is **disabled** in this checkout and has not been exercised. To enable it later, manually copy `config.example.json` to your state directory as `config.json`, change `cloud_enabled` to `true`, and export `OPENROUTER_API_KEY` only in the daemon's terminal. Restart the daemon. No browser control enables billing. Credentials are never sent to the agent graph or browser.
+Paid inference is **blocked** by `cloud_free_only: true` in this checkout. To configure free OpenRouter on another checkout, run:
 
-The gateway enforces a maximum output length, reserves conservative estimated token charges before requests, and sends provider price ceilings. It retains reservations on ambiguous failures. The default $0.25 ceiling is **per daemon lifetime**, not a persistent account spending limit. Provider billing remains authoritative; also configure an OpenRouter key spending limit before paid use. Prices can change, so recheck catalog/provider quotes first. No automatic model fallback runs. Conversation requests are serialized independently of supervisor commands. Kernel authentication and traps cancel the local conversation task without waiting for a slow provider. Local conversation uses cancellable HTTP and closes its provider connection on interruption. Cloud requests still use blocking HTTP and may complete provider-side; its reservation is retained and a late response is not published.
+```sh
+.venv/bin/python -m agent_zero --home .agent-zero configure-openrouter
+```
+
+Paste the key into the hidden terminal prompt. The command makes a read-only key validation request, preserves voice settings, saves the key privately as `.agent-zero/openrouter.key` (mode 0600), and enables the fixed Nemotron 3 Ultra `:free` route with a $0 budget. A saved key takes precedence over an older environment key. Nothing is saved if validation fails. Restart the daemon to apply changes. `OPENROUTER_API_KEY` remains supported if no private key file exists. Neither source is sent to graph state, model prompts, browser state or Git.
+
+Free-only mode rejects paid models before networking, including authenticated model swaps. Requests cap prompt, completion, per-request and image prices at zero. There is no paid fallback. Unexpected reported nonzero billing blocks further requests. Explicit upstream 502/503 overloads get at most two retries in free-only mode; authentication, 429 quota/rate-limit and ambiguous errors are not retried. A successful free response is not a guarantee that a later request will have capacity.
+
+To run the real parent/child proof without sending existing conversation history:
+
+```sh
+.venv/bin/python -m agent_zero --home .agent-zero check-delegation
+```
+
+It uses isolated temporary state, one child, real LangGraph and the fixed free route. It verifies parent `sys_spawn`, child completion, parent `sys_wait`, answer 323, and reported cost $0. The private report is `.agent-zero/delegation-check.json`. This check consumes free-request quota. The free NVIDIA endpoint logs requests under its trial terms; keep confidential content out of it. See [the provider notice](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b:free).
+
+The gateway enforces a maximum output length, reserves conservative estimated token charges before requests, and sends provider price ceilings. It retains reservations on ambiguous failures. When paid mode is explicitly configured later, its ceiling is **per daemon lifetime**, not a persistent account spending limit. The prepared free-only checkout uses $0. Provider billing remains authoritative; also configure an OpenRouter key spending limit before paid use. Prices can change, so recheck catalog/provider quotes first. No automatic model fallback runs. Conversation requests are serialized independently of supervisor commands. Kernel authentication and traps cancel the local conversation task without waiting for a slow provider. Local conversation uses cancellable HTTP and closes its provider connection on interruption. Cloud requests still use blocking HTTP and may complete provider-side; its reservation is retained and a late response is not published.
 
 ## Voice
 

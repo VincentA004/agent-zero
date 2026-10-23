@@ -7,6 +7,13 @@ import urllib.error
 import urllib.request
 
 from .local_http import request_local_json
+from .openrouter_setup import load_key
+
+
+class ProviderError(RuntimeError):
+    def __init__(self, status, message="Inference provider rejected the request"):
+        self.status = status
+        super().__init__(f"{message} (HTTP {status})")
 
 
 def request_json(url, payload, headers=None, timeout=60):
@@ -15,7 +22,17 @@ def request_json(url, payload, headers=None, timeout=60):
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Inference provider returned HTTP {exc.code}") from None
+        message = "Inference provider rejected the request"
+        try:
+            error = json.loads(exc.read(16000)).get("error", {})
+            if isinstance(error.get("message"), str):
+                message = error["message"][:300]
+        except (ValueError, AttributeError):
+            pass
+        authorization = (headers or {}).get("Authorization", "")
+        if authorization.startswith("Bearer "):
+            message = message.replace(authorization[7:], "[REDACTED]")
+        raise ProviderError(exc.code, message) from None
     except urllib.error.URLError:
         raise RuntimeError("Inference provider unavailable; check local configuration") from None
 
@@ -25,14 +42,20 @@ class OpenRouter:
         self.config = config
         self.spent = 0.0
         self.tokens = 0
+        self.billing_fault = False
 
     async def chat(self, model, messages, record, tools=None):
         if not self.config.cloud_enabled:
             raise PermissionError("Cloud inference is disabled")
-        key = os.environ.get("OPENROUTER_API_KEY")
+        if self.billing_fault:
+            raise PermissionError("OpenRouter is blocked after unexpected billing on a free-only request")
+        if self.config.cloud_free_only and (not record or not record.get("free") or not model.endswith(":free")
+                or record.get("input_per_million") != 0 or record.get("output_per_million") != 0):
+            raise PermissionError("Free-only mode rejects paid models before networking")
+        key = load_key(self.config)
         if not key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
-        if not record or not record.get("verified"):
+        if not record or not record.get("verified") or record.get("id") != model:
             raise ValueError("Select a verified registry model before enabling cloud inference")
         # Conservative UTF-8 byte upper bound for input tokens; reserve max output.
         input_bound = len(json.dumps(messages).encode()) + len(json.dumps(tools or []).encode()) + 1024
@@ -47,15 +70,46 @@ class OpenRouter:
                          "max_price": {"prompt": record["input_per_million"], "completion": record["output_per_million"]}},
             "usage": {"include": True},
         }
+        if self.config.cloud_free_only:
+            payload["provider"]["max_price"].update(request=0, image=0)
+        if record.get("disable_reasoning"):
+            payload["reasoning"] = {"enabled": False}
         if tools:
             payload["tools"] = tools
-        result = await asyncio.to_thread(request_json, "https://openrouter.ai/api/v1/chat/completions", payload,
-                                         {"Authorization": f"Bearer {key}"})
+        attempts = 3 if self.config.cloud_free_only else 1
+        for attempt in range(attempts):
+            try:
+                result = await asyncio.to_thread(request_json, "https://openrouter.ai/api/v1/chat/completions", payload,
+                                                 {"Authorization": f"Bearer {key}"})
+                # OpenRouter may return an upstream failure in an HTTP 200 body.
+                if isinstance(result, dict) and isinstance(result.get("error"), dict):
+                    error = result["error"]
+                    cost = result.get("usage", {}).get("cost", 0)
+                    if self.config.cloud_free_only and isinstance(cost, (int, float)) and cost > 0:
+                        self.spent += cost
+                        self.billing_fault = True
+                        raise RuntimeError("Unexpected free-route billing on an error response; requests blocked")
+                    code = error.get("code", 0)
+                    code = code if type(code) is int else 0
+                    message = str(error.get("message", "Inference provider returned an error"))[:300].replace(key, "[REDACTED]")
+                    raise ProviderError(code, message)
+                break
+            except ProviderError as exc:
+                # Only explicit overload failures are retried, only in free mode.
+                # Never retry authentication, quota/rate-limit or ambiguous errors.
+                if exc.status not in (502, 503) or attempt + 1 >= attempts:
+                    raise
+                await asyncio.sleep((2, 6)[attempt])
+        if not isinstance(result, dict) or not isinstance(result.get("choices"), list) or not result["choices"]:
+            raise RuntimeError("Inference provider returned no completion")
         usage = result.get("usage", {})
         self.tokens += usage.get("total_tokens", 0)
         actual = usage.get("cost")
         if isinstance(actual, (int, float)) and actual >= 0:
             self.spent += actual - reserve
+            if self.config.cloud_free_only and actual > 0:
+                self.billing_fault = True
+                raise RuntimeError("OpenRouter reported unexpected nonzero cost on a free-only request; further requests blocked")
         message = result["choices"][0]["message"]
         if tools and (isinstance(message.get("content"), str) or message.get("tool_calls")):
             return {**message, "content": message.get("content") or ""}

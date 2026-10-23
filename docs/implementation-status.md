@@ -1,6 +1,6 @@
 # Implementation status
 
-The prepared checkout supports cloud parent JARVIS and supervised children, local Qwen3.5 9B for Cardinal/fallback, and offline speech input. Cloud execution remains disabled and local userspace fallback is opt-in.
+The prepared checkout supports cloud parent JARVIS and supervised children, local Qwen3.5 9B for Cardinal/fallback, and offline speech input. Nemotron 3 Ultra Free is live-tested and configured, with a $0 budget, free-only routing and paid swaps blocked. Local userspace fallback remains opt-in.
 
 | Area | Implemented | Remaining limits |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ The prepared checkout supports cloud parent JARVIS and supervised children, loca
 | Authentication | Typed browser/TUI, explicitly initiated offline spoken browser/TUI, scrypt, rate limiting, expiring operator tokens | Real microphone accuracy requires user testing; recognized passphrase must match exactly |
 | Voice | Offline STT, foreground Hey Jarvis wake matching, follow-up and sleep lifecycle, local system TTS, cancellation and focus/kernel pauses | Clip-based wake latency; no dedicated acoustic wake model or concurrent spoken barge-in; no incremental model-to-audio streaming |
 | Desktop | Double-clickable macOS .app launcher, daemon startup/reuse, dedicated Chrome app window/profile, browser fallback | Checkout/venv dependent, unsigned, no standalone installer; Chrome provides microphone permissions |
-| Cloud | Researched registry, native tools attached, billing opt-in, output/price/session guards, no paid fallback | Paid inference intentionally not run; cloud HTTP may finish after local cancellation; budget resets with daemon |
+| Cloud | Researched registry, native tools attached, billing opt-in, output/price/session guards, no paid fallback | Real zero-cost parent/child cloud delegation verified; paid inference not run; cloud HTTP may finish after local cancellation; budget resets with daemon |
 | Telemetry | Host CPU/RAM, local inference duration/output tokens/resident memory in status, real daemon state | No full per-process profiler or long-running memory benchmark |
 | Storage | SQLite history/audit/settings, graph checkpoints, flush commands | Local text unencrypted; retention and account-level billing reconciliation remain future hardening |
 

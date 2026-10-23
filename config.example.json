@@ -2,17 +2,18 @@
   "host": "127.0.0.1",
   "port": 8420,
   "cloud_enabled": false,
-  "model": "z-ai/glm-5.3-flash",
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
   "local_model": "qwen3.5:4b",
   "local_memory_gb": 12,
   "ollama_url": "http://127.0.0.1:11434",
   "max_output_tokens": 1024,
-  "session_budget_usd": 0.25,
+  "session_budget_usd": 0,
   "stt_model_path": null,
   "local_enabled": false,
   "max_agent_steps": 6,
   "max_parallel_inference": 2,
   "max_child_agents": 4,
   "max_agent_depth": 2,
-  "max_agent_births": 12
+  "max_agent_births": 12,
+  "cloud_free_only": true
 }

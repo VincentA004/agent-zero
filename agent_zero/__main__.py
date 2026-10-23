@@ -41,6 +41,8 @@ def main():
     parser = argparse.ArgumentParser(description="Agent Zero local-first runtime")
     parser.add_argument("--home", type=Path, help="Runtime directory (default ~/.agent-zero)")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("check-delegation", help="Run a live free-only parent/child OpenRouter check")
+    sub.add_parser("configure-openrouter", help="Securely enter an API key and enable free-only OpenRouter")
     sub.add_parser("init", help="Set or replace the kernel passphrase locally")
     start = sub.add_parser("serve", help="Start the local daemon and visual interface")
     start.add_argument("--port", type=int)
@@ -56,7 +58,18 @@ def main():
         os.umask(0o077)
         config = Config.load(args.home)
         config.prepare()
-        if args.command == "init":
+        if args.command == "check-delegation":
+            from .delegation_check import check
+            asyncio.run(check(config))
+        elif args.command == "configure-openrouter":
+            from .openrouter_setup import configure
+            key = getpass.getpass("OpenRouter API key (hidden; never paste into chat): ")
+            try:
+                configure(config, key)
+            finally:
+                key = ""
+            print("Free-only OpenRouter configured with a $0 budget and no paid fallback. Restart the daemon to apply.")
+        elif args.command == "init":
             first = getpass.getpass("New kernel passphrase (12+ characters): ")
             if first != getpass.getpass("Repeat passphrase: "):
                 raise ValueError("Passphrases do not match")

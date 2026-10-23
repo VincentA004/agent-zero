@@ -13,6 +13,7 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 8420
     cloud_enabled: bool = False
+    cloud_free_only: bool = False
     model: str = ""
     local_enabled: bool = False
     local_model: str = "qwen3.5:4b"
@@ -38,6 +39,8 @@ class Config:
             raise ValueError("local_enabled must be boolean and max_agent_steps must be 1..12")
         if not isinstance(self.local_model, str) or not self.local_model.startswith("qwen") or ":cloud" in self.local_model:
             raise ValueError("Local inference requires a local Qwen model")
+        if type(self.cloud_free_only) is not bool:
+            raise ValueError("cloud_free_only must be a JSON boolean")
         if type(self.cloud_enabled) is not bool:
             raise ValueError("cloud_enabled must be a JSON boolean")
         if self.host != "127.0.0.1":
@@ -48,8 +51,8 @@ class Config:
             raise ValueError("Local inference budget must be between 8 and 16 GB")
         if type(self.max_output_tokens) is not int or not 1 <= self.max_output_tokens <= 8192:
             raise ValueError("max_output_tokens must be 1..8192")
-        if type(self.session_budget_usd) not in (float, int) or not 0 < self.session_budget_usd <= 100:
-            raise ValueError("session_budget_usd must be positive and at most 100")
+        if type(self.session_budget_usd) not in (float, int) or not 0 <= self.session_budget_usd <= 100 or (self.session_budget_usd == 0 and not self.cloud_free_only):
+            raise ValueError("session_budget_usd must be positive and at most 100, or zero in free-only mode")
         local = urlsplit(self.ollama_url)
         if local.scheme != "http" or local.hostname not in ("127.0.0.1", "localhost", "::1") or local.username or local.password or local.path or local.query or local.fragment:
             raise ValueError("ollama_url must be an HTTP loopback origin without a path")

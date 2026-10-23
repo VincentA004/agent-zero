@@ -56,3 +56,17 @@ Final checks in this pass: **66 Python tests and 7 JavaScript lifecycle tests pa
 Final process checks: **87 Python tests and 7 JavaScript lifecycle tests pass**. Additional tests verify supervisor-owned getpid/getppid, kernel entry suspending children without replaying inference, and voice cancellation leaving background work intact. The intended cloud userspace route is configured with cloud execution still disabled; local Qwen remains available for Cardinal or explicit fallback.
 
 Final budget check: **88 Python tests and 7 JavaScript tests pass**. Two child agents using the same mocked OpenRouter gateway were given a ceiling sufficient for only one request; exactly one provider call was issued and the other failed before networking. Browser checks confirm PID 1 is visible and unauthenticated model swaps, permission changes and process creation are rejected. Screenshot: `output/playwright/cardinal-process-tree.png`.
+
+
+## Live free OpenRouter delegation (2026-10-23)
+
+- Original environment credential failed HTTP 401. User entered a valid key through the hidden terminal setup command. Stored privately outside Git; no key appears in logs, prompts, model state or browser state.
+- Gemma 4 26B A4B `:free` returned upstream 429 from Google AI Studio. Nemotron 3 Super free returned an unavailable upstream endpoint. Neither route was promoted to the live default. User suggested Nemotron 3 Ultra Free.
+- Public catalog and endpoint metadata confirmed Ultra’s exact `nvidia/nemotron-3-ultra-550b-a55b:free` ID, zero pricing, and tool support. A tiny direct probe returned OK at reported cost 0.
+- Fixed HTTP-200 upstream error envelopes (previously surfaced as missing `choices`). Only explicit 502/503 overloads get bounded retries in free-only mode; no paid fallback or quota retry.
+- **Real LangGraph delegation passed:** parent PID 1 called `sys_spawn`; child PID 2, PPID 1, used the same Ultra free model with no capabilities, returned `17 × 19 = 323`, and exited code 0. Parent called `sys_wait` and replied “The child computed 17 × 19 = 323.” This was real cloud inference, not stubbed output.
+- Complete test usage: **7,437 tokens; OpenRouter reported $0.00**. One separate tiny Ultra probe used 22 tokens at $0. Existing user conversation history was excluded via isolated temporary state. Report saved privately at `.agent-zero/delegation-check.json`.
+- Runtime configured with free-only mode and budget $0. Paid selection blocked even for an authenticated operator until configuration is deliberately changed. All parent and child requests share this guard.
+- **98 Python tests and 7 JavaScript lifecycle tests pass**, including secure setup, zero ceilings, no paid routing, record/model matching, unexpected-billing stop, and bounded provider overload handling. Syntax/compilation checks pass.
+
+The same live test also passed through the **running daemon's Unix API**, using a separate test conversation: PID 1 spawned PID 2 (`math-child`), PID 2 returned `323` and exited 0, and the parent reported “The child computed 17 × 19 = 323.” This second live run used 7,417 tokens at reported cost $0. Its process record persists and is visible in Cardinal. Private report: `.agent-zero/live-daemon-delegation.json`.
