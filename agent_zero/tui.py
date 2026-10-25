@@ -119,6 +119,8 @@ def create_app(root: Path, voice_model: Path | None = None):
                     method, params = "sys_resolve", {"trap_id": matches[0]["id"], "approved": command == "approve"}
                 elif command == "flush":
                     method, params = "sys_mem_flush", {"scope": arg or "session"}
+                elif command == "mem":
+                    method, params = "sys_mem_command", {"text": text}
                 elif command != "status":
                     method, params = "sys_parse", {"text": text}
                 result = await call(root, method, params, self.token)

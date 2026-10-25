@@ -8,7 +8,7 @@ The process hierarchy borrows parent/child identities and inheritance from [POSI
 
 | Domain | Calls | Who can invoke |
 | --- | --- | --- |
-| Ring 0 administration | `sys_model_swap`, `sys_perm_toggle`, `sys_mount_sandbox`, `sys_mem_flush`, `sys_resolve`, `sys_trap_table`, `sys_parse` | Authenticated operator only |
+| Ring 0 administration | `sys_model_swap`, `sys_perm_toggle`, `sys_mount_sandbox`, `sys_mem_flush`, `sys_resolve`, `sys_trap_table`, `sys_parse`, `sys_mem_create`, `sys_mem_grant`, `sys_mem_drop`, `sys_mem_spaces`, `sys_mem_command` | Authenticated operator only |
 | Authentication | `sys_auth`, explicit `voice_auth`, `sys_exit` (drop operator authority) | Human credential flow; never model tools |
 | Agent lifecycle | `sys_getpid`, `sys_getppid`, `sys_spawn`, `sys_fork`, `sys_exec`, `sys_proc_tree`, `sys_proc_info`, `sys_wait`, `sys_signal`, `sys_reap` | Model tools restricted to the caller's subtree; authenticated operator can manage the whole tree |
 | Process listing | `sys_proc_table` | Authenticated operator; agent tree tool exposes only its subtree |
@@ -37,3 +37,7 @@ The model tool adapter has a fixed allowlist and calls a separate process dispat
 `ps`, `tree`, `info PID`, `spawn TASK`, `fork TASK`, `exec PID`, `wait PID`, `signal PID TERM|KILL|STOP|CONT`, and `reap PID` work in both consoles after authentication. Spawned/exec'd tasks remain queued until `exit` drops kernel authority. Browser process controls also offer exec, stop/continue, cancellation and reaping. The trap queue is now `sys_trap_table`; `sys_proc_table` lists actual agent process records.
 
 `sys_mem_flush all` also cancels pending/running agent work and clears process task text, fork snapshots and cached results before removing graph checkpoints. Session/ephemeral flush clears only the selected session/process; copies held by independent children require `all`. Pending human review requests must be resolved before flushing.
+
+## Virtual memory
+
+Each process has its own persisted private namespace; process subtree visibility does not grant access to another process's private pages. Spawn creates empty memory, fork copies private pages independently, and shared grants never inherit. Agents have `sys_mem_read/write/delete/list/search/stat` for their own pages and explicitly granted shared regions. Cardinal alone creates regions and changes PID-specific grants. Reaping deletes private pages and grants; memory flush also covers virtual pages. See [virtual memory](virtual-memory.md) for paging, context bounds, authority and retention semantics.

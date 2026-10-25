@@ -35,6 +35,9 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                         field.value = "model z-ai/glm-5.3-flash"
                         await pilot.press("enter")
                         client.assert_any_await(Path(temp), "sys_model_swap", {"target_model_id":"z-ai/glm-5.3-flash"}, "test-token")
+                        field.value = "mem grant team 1 r"
+                        await pilot.press("enter")
+                        client.assert_any_await(Path(temp), "sys_mem_command", {"text":"mem grant team 1 r"}, "test-token")
                         await pilot.press("ctrl+l")
                         self.assertEqual(app.token, "")
                         self.assertTrue(field.password)

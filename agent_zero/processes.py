@@ -97,7 +97,7 @@ class ProcessTable:
                 roots.append(process)
         return roots
 
-    def create(self, task, parent=1, name="", capabilities=None, snapshot=None):
+    def create(self, task, parent=1, name="", capabilities=None, snapshot=None, copy_memory=False):
         source = self.get(parent)
         if parent != 1 and source["state"] in TERMINAL:
             raise ValueError("ECHILD: parent is no longer alive")
@@ -132,6 +132,7 @@ class ProcessTable:
         self.done[pid] = asyncio.Event()
         self.births += 1
         self.save(process)
+        self.runtime.memory.create_private(pid, copy_from=parent if copy_memory else None)
         self.runtime.store.audit("process.created", f"pid={pid} ppid={parent}")
         return self.info(pid)
 
@@ -300,6 +301,7 @@ class ProcessTable:
         self.save(process)
         self.done.pop(pid, None)
         self.gates.pop(pid, None)
+        self.runtime.memory.reap(pid)
         return result
 
     async def flush_memory(self, session, scope):
@@ -337,7 +339,8 @@ class ProcessTable:
                 raise PermissionError("EAGAIN: userspace is suspended")
             parent = params.get("ppid", 1) if actor == 0 else actor
             snapshot = self.runtime.context_history(self.get(parent)["session"]) if method == "sys_fork" else None
-            child = self.create(params.get("task", ""), parent, params.get("name", ""), params.get("capabilities"), snapshot)
+            child = self.create(params.get("task", ""), parent, params.get("name", ""), params.get("capabilities"), snapshot,
+                                copy_memory=method == "sys_fork")
             return self.start(child["pid"], actor) if method == "sys_spawn" else child
         if method == "sys_exec":
             return self.start(params.get("pid"), actor, params.get("workflow", "task"))

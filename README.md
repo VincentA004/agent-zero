@@ -135,6 +135,25 @@ exit
 
 The full authority and lifecycle specification is in [the process model](docs/process-model.md).
 
+## Virtual memory
+
+Each agent has a persistent private address space backed by SQLite. Pages hold facts, notes or task state that can outlive a conversation turn without occupying the model's active context. Spawn starts with empty private memory; fork copies the parent's private pages into an independent namespace. Even a parent cannot directly read its child's private pages through agent tools.
+
+Agents use `sys_mem_write`, `sys_mem_read`, `sys_mem_list`, `sys_mem_search`, `sys_mem_delete`, and `sys_mem_stat`. Reading a page loads it into an LRU working set, bounded to 8 KiB of serialized context per PID. Eviction removes the resident copy while preserving backing data. Page bodies enter provider requests through a temporary, explicitly untrusted memory message; read results store addresses rather than duplicating bodies into graph checkpoints.
+
+Shared memory is a kernel resource. Cardinal creates named regions and grants exact PIDs read-only or read/write access. Grants never inherit on spawn or fork, and every access checks current policy. For example:
+
+```text
+mem create project
+mem write shared:project plan "Review the release checklist"
+mem grant project 1 r
+exit
+```
+
+JARVIS can then read `shared:project`; another agent needs its own grant. `mem revoke project 1` blocks subsequent access and evicts its cached pages. It cannot retract information a model already received or copied into output. These bounds apply to the memory working set, not the whole model prompt or host RAM.
+
+See [virtual memory](docs/virtual-memory.md) for quotas, address syntax, paging, persistence, cleanup and the full command interface.
+
 ## Models and resource accounting
 
 The intended split is **cloud inference for parent JARVIS and children**, with **local Qwen for Cardinal command proposals**. Local userspace conversation is an explicit fallback enabled by `local_enabled: true`; it takes priority over cloud conversation when enabled.
@@ -228,6 +247,7 @@ That check consumes free-request quota. It verifies parent spawn, child completi
 | [`runtime.py`](agent_zero/runtime.py) | Supervisor, mode transitions, administrative dispatch |
 | [`processes.py`](agent_zero/processes.py) | Process tree, inheritance, scheduling gates, lifecycle |
 | [`tools.py`](agent_zero/tools.py), [`graph.py`](agent_zero/graph.py) | Restricted model tool adapter and LangGraph execution |
+| [`memory.py`](agent_zero/memory.py) | Private/shared page store, kernel grants and bounded LRU paging |
 | [`security.py`](agent_zero/security.py) | Passphrase verification, tokens, expiry and rate limits |
 | [`sandbox.py`](agent_zero/sandbox.py), [`worker.py`](agent_zero/worker.py) | File boundary and isolated worker |
 | [`engines.py`](agent_zero/engines.py) | Cloud/local adapters and shared provider accounting |

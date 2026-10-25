@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from .processes import CURRENT_PID, PROCESS_SYSCALLS
+from .memory import MEMORY_TOOLS
 
 
 def schema(name, description, properties, required):
@@ -40,15 +41,33 @@ AGENT_PROCESS_TOOLS = [
 ]
 TOOLS.extend(AGENT_PROCESS_TOOLS)
 
+MEMORY_SCHEMAS = [
+    schema('sys_mem_read', 'Read a permitted memory page into your bounded working set.',
+           {'space': {'type': 'string'}, 'key': {'type': 'string'}}, ['key']),
+    schema('sys_mem_write', 'Persist a private or granted shared page, at most 4096 UTF-8 bytes.',
+           {'space': {'type': 'string'}, 'key': {'type': 'string'}, 'content': {'type': 'string'}}, ['key', 'content']),
+    schema('sys_mem_delete', 'Delete a page in private memory or a writable shared region.',
+           {'space': {'type': 'string'}, 'key': {'type': 'string'}}, ['key']),
+    schema('sys_mem_list', 'List page addresses in private memory or a granted shared region.',
+           {'space': {'type': 'string'}, 'offset': {'type': 'integer'}}, []),
+    schema('sys_mem_search', 'Search permitted memory; read a matching key to page it in.',
+           {'space': {'type': 'string'}, 'query': {'type': 'string'}}, ['query']),
+    schema('sys_mem_stat', 'Inspect your private memory usage, page cache and shared grants.', {}, []),
+]
+TOOLS.extend(MEMORY_SCHEMAS)
+
 
 async def model_step(runtime, messages, model, record):
     await runtime.processes.checkpoint()
     async with runtime.processes.slots:
         await runtime.processes.checkpoint()
+        # Temporary injection only: resident data is never added to graph state.
+        resident = runtime.memory.resident_context(CURRENT_PID.get())
+        provider_messages = [*messages, resident] if resident else messages
         if runtime.config.local_enabled:
-            response = await runtime.local.turn(messages, TOOLS)
+            response = await runtime.local.turn(provider_messages, TOOLS)
         else:
-            response = await runtime.cloud.chat(model, messages, record, TOOLS)
+            response = await runtime.cloud.chat(model, provider_messages, record, TOOLS)
     await runtime.processes.checkpoint()
     return response if isinstance(response, dict) else {"role": "assistant", "content": response}
 
@@ -73,7 +92,22 @@ async def tool_step(runtime, message):
                 args = json.loads(args)
             if not isinstance(args, dict):
                 raise ValueError("Tool arguments must be an object")
-            if name in PROCESS_SYSCALLS:
+            if name in MEMORY_TOOLS:
+                definition = next(tool['function']['parameters'] for tool in MEMORY_SCHEMAS if tool['function']['name'] == name)
+                if not set(args) <= set(definition['properties']) or not set(definition['required']) <= set(args):
+                    raise ValueError('Unexpected or missing memory syscall arguments')
+                async with runtime.lock:
+                    if runtime.audio.mode != 'userspace':
+                        raise PermissionError('Userspace memory access is suspended')
+                    value = runtime.memory.syscall(name, args, actor=CURRENT_PID.get())
+                    # Checkpoint history keeps addresses, not loaded page bodies.
+                    # The provider sees bodies only in the revocable working set.
+                    if name == 'sys_mem_read':
+                        value = {key: value[key] for key in ('space', 'key', 'revision')}
+                        value['loaded'] = True
+                    elif name == 'sys_mem_search':
+                        value['matches'] = [{key: item[key] for key in ('key', 'revision')} for item in value['matches']]
+            elif name in PROCESS_SYSCALLS:
                 # No path from model output to Runtime.dispatch or kernel tokens.
                 # Only this explicit agent allowlist can cross into the supervisor.
                 exposed = {tool["function"]["name"] for tool in AGENT_PROCESS_TOOLS}

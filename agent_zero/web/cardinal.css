@@ -69,3 +69,6 @@ body.kernel-mode { --bg:#020604; --text:#9ac9a2; --muted:#50745a; --border:#1936
 @keyframes drawer-in { from { opacity:0; transform:translateY(-22px); } to { opacity:1; transform:translateY(0); } }
 @media(max-width:800px) { .kernel-layout { grid-template-columns:1fr; } #kernel-view { padding:16px; } .kernel-title { letter-spacing:0; } .kernel-title>span:nth-child(2) { display:none; } .kernel-command label { font-size:11px; } .kernel-banner { flex-wrap:wrap; } }
 @media(prefers-reduced-motion:reduce) { .auth-drawer[open] { animation:none; } }
+
+.memory-panel { margin-top:14px; }
+.memory-panel .topology { min-height:0; margin:4px 0 10px; font-size:11px; }
