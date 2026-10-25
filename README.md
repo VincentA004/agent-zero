@@ -99,7 +99,10 @@ A syscall is a validated request to the supervisor. File operations appear to mo
 | `sys_model_swap` | Select a registered cloud model, subject to billing policy |
 | `sys_perm_toggle` | Change a runtime capability |
 | `sys_mount_sandbox` | Mount a directory as read-only or read-write within the file boundary |
-| `sys_mem_flush` | Clear selected conversation state and graph checkpoints |
+| `sys_mem_create`, `sys_mem_drop` | Create or destroy a shared memory region |
+| `sys_mem_grant` | Grant an exact PID read-only/read-write access, or revoke it |
+| `sys_mem_spaces`, `sys_mem_command` | Inspect namespaces and issue Cardinal memory commands |
+| `sys_mem_flush` | Clear selected conversation state, virtual pages and graph checkpoints |
 | `sys_proc_table` | Inspect the complete logical process table |
 | `sys_trap_table`, `sys_resolve` | Inspect and resolve pending human reviews |
 | `sys_parse` | Obtain a local-model command proposal without executing it |
@@ -139,6 +142,8 @@ The full authority and lifecycle specification is in [the process model](docs/pr
 
 Each agent has a persistent private address space backed by SQLite. Pages hold facts, notes or task state that can outlive a conversation turn without occupying the model's active context. Spawn starts with empty private memory; fork copies the parent's private pages into an independent namespace. Even a parent cannot directly read its child's private pages through agent tools.
 
+This follows the distinction between an address space and a working set: an agent can retain more information than it carries into any one model call. A page miss loads the requested data from backing storage, and eviction frees context space without deleting the stored page. The supervisor owns the mapping and access checks.
+
 Agents use `sys_mem_write`, `sys_mem_read`, `sys_mem_list`, `sys_mem_search`, `sys_mem_delete`, and `sys_mem_stat`. Reading a page loads it into an LRU working set, bounded to 8 KiB of serialized context per PID. Eviction removes the resident copy while preserving backing data. Page bodies enter provider requests through a temporary, explicitly untrusted memory message; read results store addresses rather than duplicating bodies into graph checkpoints.
 
 Shared memory is a kernel resource. Cardinal creates named regions and grants exact PIDs read-only or read/write access. Grants never inherit on spawn or fork, and every access checks current policy. For example:
@@ -151,6 +156,20 @@ exit
 ```
 
 JARVIS can then read `shared:project`; another agent needs its own grant. `mem revoke project 1` blocks subsequent access and evicts its cached pages. It cannot retract information a model already received or copied into output. These bounds apply to the memory working set, not the whole model prompt or host RAM.
+
+After authenticating in Cardinal, inspect or change memory with:
+
+```text
+mem spaces
+mem stats 1
+mem list private:1
+mem grant project 2 rw
+mem read private:2 notes
+mem revoke project 2
+mem drop project
+```
+
+Each namespace holds up to 128 pages of at most 4 KiB each, with up to 32 shared regions. Pages and grants survive daemon restarts; resident caches start empty. Reaping a process removes its private pages and shared grants. A session flush clears its private pages and working set; `flush all` clears all page bodies while preserving shared-region definitions and grant policy.
 
 See [virtual memory](docs/virtual-memory.md) for quotas, address syntax, paging, persistence, cleanup and the full command interface.
 
