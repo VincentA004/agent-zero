@@ -12,6 +12,8 @@ These rings are application authority domains. Agent Zero does not enter the hos
 
 Most of the system is Python. An asyncio supervisor owns authentication, process records, capabilities, provider access, storage, audio routing, and syscall dispatch. LangGraph provides the agent execution graph and durable interrupts; it does not decide who has authority. Electron hosts the window and microphone permission flow, with plain HTML, CSS, and JavaScript handling the orb and terminal visuals.
 
+The current desktop implementation is Electron. A Tauri shell is a proposed follow-up; no Tauri migration has been implemented. The Python supervisor and existing web interface remain separate from the desktop shell.
+
 ```text
                  Electron window
               JARVIS orb / Cardinal
@@ -270,6 +272,29 @@ The destination must not exist. The bundle embeds Electron and is locally ad-hoc
 
 State lives in the selected home directory: SQLite history, audit records and checkpoints, hashed credentials, private provider credentials, and the sandbox workspace. The default is `~/.agent-zero`; `--home` or `AGENT_ZERO_HOME` selects another directory. Local state, model files, API keys, and generated app bundles are ignored by Git.
 
+## Trying the runtime
+
+To reopen an already configured checkout, reuse its existing state:
+
+```sh
+.venv/bin/python -m agent_zero --home .agent-zero desktop
+```
+
+Enable **Hey Jarvis** for the current app session and say “Hey Jarvis, enter kernel mode,” or press Cmd+K / Ctrl+K. Authenticate in the drawer to replace the orb with Cardinal in the same window.
+
+This small walkthrough exercises persistent memory, inspection and a scheduled mailbox reminder without calling a conversation model:
+
+```text
+mem write private demo "A persistent note for JARVIS"
+inspect 1
+schedule notice demo-reminder 5 "The scheduler is working"
+exit
+```
+
+The note is available in PID 1's memory inspector. Automatic scheduling waits until userspace resumes; the orb's mail count increases after delivery. Reenter Cardinal and use `mail recv` to read the reminder, then `mail ack` followed by its message ID to remove it. `trace 1` shows the scheduler delivery event. Remove the completed definition with `schedule remove demo-reminder` when finished. Reminder delivery itself uses no inference, microphone capture or speech playback.
+
+Closing the Electron window leaves the Python daemon running, so enabled jobs can continue. A desktop reopen reuses that daemon; backend code/configuration changes require restarting it, while web-interface changes require reloading the window. Voice monitoring must be explicitly enabled again in a new app session.
+
 ## Where the boundary holds
 
 On macOS, file tools execute in a separate short-lived Python worker under a deny-by-default OS sandbox. Paths are resolved relative to permitted directories, traversal and symlinks are rejected, mounts enforce read-only or read-write access, and file size and type are checked. The worker cannot access adjacent runtime credentials or open network connections. Other platforms retain descriptor-based file confinement without this macOS worker policy. The daemon and Ollama are outside the worker sandbox.
@@ -283,7 +308,7 @@ There is no arbitrary shell, code-execution, or network tool adapter, and those 
 npm test
 ```
 
-The automated suite uses temporary state, simulated inference, local sockets, and real macOS worker-policy checks. It covers privilege enforcement, process controls, restart recovery, graph interrupts, credential handling, billing rejection, file isolation, HTTP request validation, and voice lifecycle behavior.
+The automated suite uses temporary state, simulated inference, local sockets, and real macOS worker-policy checks. It covers privilege enforcement, process controls, restart recovery, graph interrupts, credential handling, billing rejection, file isolation, HTTP request validation, voice lifecycle behavior, private/shared memory, scheduler claims, service grants, mailbox isolation and execution traces. The latest recorded full run passed **154 Python tests and 15 JavaScript tests**; those checks did not call a model provider or open a physical microphone. Hardware voice testing remains a separate manual check.
 
 An opt-in live check exercises real free-provider delegation with isolated conversation state:
 
