@@ -173,6 +173,38 @@ Each namespace holds up to 128 pages of at most 4 KiB each, with up to 32 shared
 
 See [virtual memory](docs/virtual-memory.md) for quotas, address syntax, paging, persistence, cleanup and the full command interface.
 
+## Scheduled work, services and IPC
+
+Processes become more useful when they can outlive the immediate conversation and communicate without exposing their private memory. The supervisor now has a persistent task scheduler, named service registry and PID-addressed mailboxes. Cardinal controls the definitions and grants; agents get a smaller invocation and messaging interface.
+
+Scheduled agent jobs become ordinary PID 1 children, using the same model, capability ceilings, quotas and gateway. One-shot and fixed-interval schedules survive restarts, coalesce missed intervals, and avoid overlapping their own workers. A local reminder can deliver mailbox data without calling a model:
+
+```text
+schedule after review 300 "Review the release checklist"
+schedule every monitor 3600 "Check the permitted project workspace"
+schedule notice break 600 "Take a break"
+schedule list
+schedule runs review
+```
+
+Automatic dispatch waits while Cardinal is active. The daemon must be running; this does not install OS cron jobs or wake a sleeping Mac. A durable claim prevents replay of an already claimed occurrence after a crash, with a possible lost occurrence in the claim/launch gap. Existing process quotas still apply.
+
+Services give a name to a kernel-approved task template:
+
+```text
+service register researcher "Summarize the supplied project material"
+service grant researcher 2
+service start researcher "Review the release notes"
+```
+
+Registrations persist, while invocations run as finite child agents. PID 1 is initially granted access; other callers need an exact PID grant. Models discover allowed services through `sys_service_list`, invoke them through `sys_service_call`, and collect results with `sys_wait`. A service permits one active worker and cannot silently gain permissions or select another model.
+
+Agents communicate through `sys_mail_send`, `sys_mail_recv` and `sys_mail_ack`. Sender identity comes from the supervisor; messages are restricted to ancestors/descendants and each receiver can only read/acknowledge its own inbox. Kernel-origin reminders and scheduled completion reports arrive in JARVIS's inbox. The orb shows pending mail, but delivery does not automatically wake inference or speak an alarm.
+
+Cardinal also includes a per-PID memory inspector and execution trace panel. Memory bodies load only on explicit inspection. Traces connect process, model and tool spans by PID/parent span and show timing, cancellation and denial status without storing prompts, tool payloads or credentials. `inspect PID`, `trace PID`, and `mail recv PID` expose the same functions through the command interface.
+
+See [background runtime and inspection](docs/background-runtime.md) for the full command syntax, bounded queues, crash semantics, retention and service lifecycle.
+
 ## Models and resource accounting
 
 The intended split is **cloud inference for parent JARVIS and children**, with **local Qwen for Cardinal command proposals**. Local userspace conversation is an explicit fallback enabled by `local_enabled: true`; it takes priority over cloud conversation when enabled.
@@ -266,6 +298,9 @@ That check consumes free-request quota. It verifies parent spawn, child completi
 | [`runtime.py`](agent_zero/runtime.py) | Supervisor, mode transitions, administrative dispatch |
 | [`processes.py`](agent_zero/processes.py) | Process tree, inheritance, scheduling gates, lifecycle |
 | [`tools.py`](agent_zero/tools.py), [`graph.py`](agent_zero/graph.py) | Restricted model tool adapter and LangGraph execution |
+| [`scheduler.py`](agent_zero/scheduler.py), [`services.py`](agent_zero/services.py) | Durable jobs, named workflows and caller grants |
+| [`mailboxes.py`](agent_zero/mailboxes.py), [`tracing.py`](agent_zero/tracing.py) | Bounded IPC and metadata-only execution spans |
+| [`control.py`](agent_zero/control.py) | Shared Cardinal schedule/service/mail/trace command parser |
 | [`memory.py`](agent_zero/memory.py) | Private/shared page store, kernel grants and bounded LRU paging |
 | [`security.py`](agent_zero/security.py) | Passphrase verification, tokens, expiry and rate limits |
 | [`sandbox.py`](agent_zero/sandbox.py), [`worker.py`](agent_zero/worker.py) | File boundary and isolated worker |

@@ -121,6 +121,8 @@ def create_app(root: Path, voice_model: Path | None = None):
                     method, params = "sys_mem_flush", {"scope": arg or "session"}
                 elif command == "mem":
                     method, params = "sys_mem_command", {"text": text}
+                elif command in ("schedule", "service", "mail", "trace", "inspect"):
+                    method, params = "sys_control_command", {"text": text}
                 elif command != "status":
                     method, params = "sys_parse", {"text": text}
                 result = await call(root, method, params, self.token)

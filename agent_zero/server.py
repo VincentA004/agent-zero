@@ -137,6 +137,7 @@ class Server:
             await asyncio.sleep(1)
             async with self.runtime.lock:
                 await self.runtime.expire_authority()
+                self.runtime.scheduler.tick()
 
 
 async def call(root: Path, method, params=None, token=""):

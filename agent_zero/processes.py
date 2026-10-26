@@ -134,6 +134,7 @@ class ProcessTable:
         self.save(process)
         self.runtime.memory.create_private(pid, copy_from=parent if copy_memory else None)
         self.runtime.store.audit("process.created", f"pid={pid} ppid={parent}")
+        self.runtime.trace.event(pid, 'process.created')
         return self.info(pid)
 
     def start(self, pid, actor=0, workflow="task"):
@@ -156,6 +157,7 @@ class ProcessTable:
             process.update(state="cancelled", error="Cancelled before execution", exit_code=143)
             self.save(process)
             self.done[pid].set()
+            self.runtime.trace.event(pid, 'process.cancelled')
             self.tasks.pop(pid, None)
             for child in self.records.values():
                 if child["ppid"] == pid and child["state"] != "reaped":
@@ -174,6 +176,12 @@ class ProcessTable:
             raise PermissionError("Agent process has terminated")
 
     async def _run(self, pid):
+        with self.runtime.trace.span(pid, 'process', 'process.run') as span:
+            await self._execute(pid)
+            state = self.records[pid]['state']
+            span['status'] = {'failed': 'failed', 'cancelled': 'cancelled', 'waiting_review': 'paused'}.get(state, 'ok')
+
+    async def _execute(self, pid):
         process = self.get(pid)
         context = CURRENT_PID.set(pid)
         try:
@@ -208,6 +216,7 @@ class ProcessTable:
                     self.save(child)
             CURRENT_PID.reset(context)
             self.save(process)
+            self.runtime.scheduler.reconcile()
             self.done[pid].set()
             self.tasks.pop(pid, None)
             self.runtime.store.audit("process.finished", f"pid={pid} state={process['state']}")
@@ -302,6 +311,9 @@ class ProcessTable:
         self.done.pop(pid, None)
         self.gates.pop(pid, None)
         self.runtime.memory.reap(pid)
+        self.runtime.mailboxes.reap(pid)
+        self.runtime.services.reap(pid)
+        self.runtime.trace.event(pid, 'process.reaped')
         return result
 
     async def flush_memory(self, session, scope):

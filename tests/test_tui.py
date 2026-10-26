@@ -38,6 +38,9 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                         field.value = "mem grant team 1 r"
                         await pilot.press("enter")
                         client.assert_any_await(Path(temp), "sys_mem_command", {"text":"mem grant team 1 r"}, "test-token")
+                        field.value = "schedule list"
+                        await pilot.press("enter")
+                        client.assert_any_await(Path(temp), "sys_control_command", {"text":"schedule list"}, "test-token")
                         await pilot.press("ctrl+l")
                         self.assertEqual(app.token, "")
                         self.assertTrue(field.password)

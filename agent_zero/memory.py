@@ -8,7 +8,7 @@ import shlex
 import time
 
 MEMORY_TOOLS = {'sys_mem_read', 'sys_mem_write', 'sys_mem_delete', 'sys_mem_list', 'sys_mem_search', 'sys_mem_stat'}
-MEMORY_ADMIN = {'sys_mem_create', 'sys_mem_grant', 'sys_mem_drop', 'sys_mem_spaces', 'sys_mem_command'}
+MEMORY_ADMIN = {'sys_mem_create', 'sys_mem_grant', 'sys_mem_drop', 'sys_mem_spaces', 'sys_mem_command', 'sys_mem_inspect'}
 _NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z')
 
 
@@ -132,6 +132,12 @@ class VirtualMemory:
         if method == 'sys_mem_command':
             method, params = memory_command(params.get('text', ''))
             return self.syscall(method, params, actor)
+        if method == 'sys_mem_inspect':
+            pages = [{'space': f'private:{pid}', 'key': key, 'bytes': size, 'revision': revision}
+                     for key, size, revision in self.db.execute('SELECT key,length(CAST(content AS BLOB)),revision FROM memory_pages WHERE space=? ORDER BY key', (f'private:{pid}',))]
+            return {'stats': self.stats(pid), 'pages': pages,
+                    'resident': [{'space': space, 'key': key, 'bytes': len(value.encode())}
+                                 for (space, key), value in self.cache.get(pid, {}).items()]}
         if method == 'sys_mem_spaces':
             return [{'space': s, 'owner_pid': owner, 'kind': kind, 'pages': count}
                     for s, owner, kind, count in self.db.execute('''SELECT s.id,s.owner,s.kind,count(p.key)

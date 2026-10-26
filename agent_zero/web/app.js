@@ -1,7 +1,7 @@
 "use strict";
 import { VoiceSession } from "/voice.js";
 const $ = (id) => document.getElementById(id);
-let previousMode = null;
+let previousMode = null, controlsBusy = false, controlsDigest = "";
 let permissionDigest = "", trapDigest = "", eventDigest = "", processDigest = "";
 let state = null, token = "", tokenUntil = 0, busy = false, voiceSession = null, view = "jarvis", toastTimer;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -39,6 +39,7 @@ function requestKernel() { if (requireAuth()) showView("kernel"); }
 function showView(next) {
   if (next === "kernel" && !authorized()) { requireAuth(); return; }
   view = next;
+  if(next !== "kernel") { $("inspect-stats").textContent="";$("inspect-pages").replaceChildren();$("inspect-body").textContent="";$("mailbox-body").textContent=""; }
   document.body.classList.toggle("orb-mode", next === "jarvis");
   document.body.classList.toggle("kernel-mode", next === "kernel");
   $("jarvis-view").classList.toggle("hidden", next !== "jarvis"); $("kernel-view").classList.toggle("hidden", next !== "kernel");
@@ -136,6 +137,7 @@ function renderState(s) {
   $("active-model").textContent=s.local_enabled?s.local_model:(model?.name||s.model);
   $("cloud-status").textContent=s.local_enabled?"OLLAMA · OFFLINE":s.cloud_enabled?(s.cloud_free_only?"OPENROUTER · FREE ONLY":"CLOUD ACTIVE"):"LOCAL PREVIEW";
   voiceSession?.sync(s);
+  $("pending-mail").textContent=String(s.background?.root_mail_pending || 0);
   const vm=s.virtual_memory;
   $("memory-summary").textContent=vm?`${vm.pages} PAGES / ${vm.stored_bytes} BYTES BACKING STORE\n${vm.shared_regions} SHARED REGIONS / ${vm.resident_bytes} BYTES RESIDENT\n${vm.resident_budget_per_pid} BYTES WORKING SET PER PID · mem spaces / mem stats PID`:"Waiting for memory subsystem";
   const t=s.telemetry;
@@ -186,10 +188,49 @@ function renderState(s) {
   for(const event of s.events){const row=node("div","event-row"),detail=node("div","",event.event);detail.append(node("small","",event.detail));const time=node("time","",new Date(event.created*1000).toLocaleTimeString("en-GB"));row.append(time,detail);$("events").append(row);}
   }
 }
-async function refresh(){try{const response=await fetch("/api/status");const data=await response.json();if(!data.ok)throw new Error(data.error);renderState(data.result);}catch(error){$("connection").textContent="RUNTIME OFFLINE";}}
+async function refresh(){try{const response=await fetch("/api/status");const data=await response.json();if(!data.ok)throw new Error(data.error);renderState(data.result);await refreshControls();}catch(error){$("connection").textContent="RUNTIME OFFLINE";}}
 function openRegistry(){if(!state)return toast("Waiting for local runtime.");void voiceSession?.pause();$("model-list").replaceChildren();for(const model of state.registry.cloud){const row=node("div","registry-entry"),info=node("div");info.append(node("h3","",model.name),node("small","",model.id),node("p","",`$${model.input_per_million} input / $${model.output_per_million} output per 1M`));const source=node("a","","Catalog source ↗");source.href=model.source;source.target="_blank";source.rel="noopener noreferrer";info.append(node("p","",model.role),node("p","registry-note",model.note),source);const b=node("button","",model.id===state.model?"ACTIVE":state.cloud_free_only&&!model.free?"PAID LOCKED":"SELECT");b.disabled=model.id===state.model||(state.cloud_free_only&&!model.free);b.addEventListener("click",async()=>{if(!authorized()){$("registry-dialog").close();requireAuth();return;}try{await rpc("sys_model_swap",{target_model_id:model.id});await refresh();openRegistry();toast("Model selected. Billing configuration is unchanged.");}catch(error){toast(error.message);}});row.append(info,b);$("model-list").append(row);}$("local-list").replaceChildren(...state.registry.local.map(m=>node("div","",`${m.id} · ${m.weights_gb} GB weights · ~${m.budget_gb} GB budget`)));if(!$("registry-dialog").open)$("registry-dialog").showModal();}
 $("registry-button").addEventListener("click",openRegistry);$("registry-close").addEventListener("click",()=>$("registry-dialog").close());$("registry-dialog").addEventListener("close",()=>{if(view==="jarvis")voiceSession?.resume();});
-$("kernel-form").addEventListener("submit",async e=>{e.preventDefault();const text=$("kernel-input").value.trim();if(!text)return;$("kernel-input").value="";const out=$("command-result");if(text==="help"){out.textContent="status · ps · tree · spawn TASK · fork TASK · exec PID · wait PID · signal PID TERM|STOP|CONT · reap PID · model ID · allow file_write · flush session · mem · exit\nMemory: mem spaces | mem stats [PID] | mem create NAME | mem grant NAME PID r|rw | mem revoke NAME PID | mem list SPACE | mem read SPACE KEY | mem write SPACE KEY TEXT | mem drop NAME\nOther text is sent only to your installed local model as a proposal. No proposal executes automatically.\nUse the trap table to approve or reject requests.";return;}if(text!=="status"&&!requireAuth())return;const[command,...rest]=text.split(" "),arg=rest.join(" ");let method="status",params={};if(command==="mem"){method="sys_mem_command";params={text};}else if(command==="exit"){method="sys_exit";}else if(command==="model"){method="sys_model_swap";params={target_model_id:arg};}else if(command==="allow"||command==="deny"){method="sys_perm_toggle";params={capability_id:arg,enabled:command==="allow"};}else if(command==="flush"){method="sys_mem_flush";params={scope:arg||"session"};}else if(command==="ps"){method="sys_proc_table";}else if(command==="tree"){method="sys_proc_tree";}else if(command==="spawn"||command==="fork"){method=command==="spawn"?"sys_spawn":"sys_fork";params={task:arg};}else if(command==="exec"||command==="wait"||command==="reap"||command==="info"){method={exec:"sys_exec",wait:"sys_wait",reap:"sys_reap",info:"sys_proc_info"}[command];params={pid:Number(arg)};}else if(command==="signal"){const [pid,signal]=arg.split(/\s+/);method="sys_signal";params={pid:Number(pid),signal:signal||"TERM"};}else if(command!=="status"){method="sys_parse";params={text};}out.textContent="PROCESSING…";try{const result=await rpc(method,params);if(method==="sys_exit"){token="";tokenUntil=0;}out.textContent=method==="status"?`MODE ${result.mode.toUpperCase()} / MODEL ${result.model}\nLOCAL ${result.local_model} / CLOUD ${result.cloud_enabled?"ON":"OFF"}\n${result.pending.length} PENDING TRAPS / ${result.tokens} TOKENS / $${result.spent_usd.toFixed(6)}`:JSON.stringify(result,null,2)+(method==="sys_parse"?"\nPROPOSAL ONLY / issue an explicit command to execute":"");await refresh();}catch(error){out.textContent=`DENIED / ${error.message}`;}});
+$("kernel-form").addEventListener("submit",async e=>{e.preventDefault();const text=$("kernel-input").value.trim();if(!text)return;$("kernel-input").value="";const out=$("command-result");if(text==="help"){out.textContent="status · ps · tree · spawn TASK · fork TASK · exec PID · wait PID · signal PID TERM|STOP|CONT · reap PID · model ID · allow file_write · flush session · mem · schedule · service · mail · trace · inspect · exit\nControl: schedule list|after|every|notice|at|runs|pause|resume|run|remove; service list|register|grant|revoke|start|disable|enable|remove; mail recv|send|ack; trace [PID]; inspect [PID]\nMemory: mem spaces | mem stats [PID] | mem create NAME | mem grant NAME PID r|rw | mem revoke NAME PID | mem list SPACE | mem read SPACE KEY | mem write SPACE KEY TEXT | mem drop NAME\nOther text is sent only to your installed local model as a proposal. No proposal executes automatically.\nUse the trap table to approve or reject requests.";return;}if(text!=="status"&&!requireAuth())return;const[command,...rest]=text.split(" "),arg=rest.join(" ");let method="status",params={};if(["schedule","service","mail","trace","inspect"].includes(command)){method="sys_control_command";params={text};}else if(command==="mem"){method="sys_mem_command";params={text};}else if(command==="exit"){method="sys_exit";}else if(command==="model"){method="sys_model_swap";params={target_model_id:arg};}else if(command==="allow"||command==="deny"){method="sys_perm_toggle";params={capability_id:arg,enabled:command==="allow"};}else if(command==="flush"){method="sys_mem_flush";params={scope:arg||"session"};}else if(command==="ps"){method="sys_proc_table";}else if(command==="tree"){method="sys_proc_tree";}else if(command==="spawn"||command==="fork"){method=command==="spawn"?"sys_spawn":"sys_fork";params={task:arg};}else if(command==="exec"||command==="wait"||command==="reap"||command==="info"){method={exec:"sys_exec",wait:"sys_wait",reap:"sys_reap",info:"sys_proc_info"}[command];params={pid:Number(arg)};}else if(command==="signal"){const [pid,signal]=arg.split(/\s+/);method="sys_signal";params={pid:Number(pid),signal:signal||"TERM"};}else if(command!=="status"){method="sys_parse";params={text};}out.textContent="PROCESSING…";try{const result=await rpc(method,params);if(method==="sys_exit"){token="";tokenUntil=0;}out.textContent=method==="status"?`MODE ${result.mode.toUpperCase()} / MODEL ${result.model}\nLOCAL ${result.local_model} / CLOUD ${result.cloud_enabled?"ON":"OFF"}\n${result.pending.length} PENDING TRAPS / ${result.tokens} TOKENS / $${result.spent_usd.toFixed(6)}`:JSON.stringify(result,null,2)+(method==="sys_parse"?"\nPROPOSAL ONLY / issue an explicit command to execute":"");await refresh();}catch(error){out.textContent=`DENIED / ${error.message}`;}});
+
+async function controlAction(method, params = {}) {
+  if(!requireAuth()) return;
+  try { const result=await rpc(method,params);$("command-result").textContent=JSON.stringify(result,null,2);controlsDigest="";await refresh();return result; }
+  catch(error){toast(error.message);}
+}
+function actionButton(label, method, params) {
+  const button=node("button","",`[ ${label} ]`);
+  button.addEventListener("click",()=>void controlAction(method,params));return button;
+}
+async function refreshControls() {
+  if(view!=="kernel"||!authorized()||controlsBusy)return;
+  controlsBusy=true;const owner=token;
+  try {
+    const data=await rpc("sys_control_snapshot");
+    if(owner!==token||view!=="kernel")return;
+    const digest=JSON.stringify(data);if(digest===controlsDigest)return;controlsDigest=digest;
+    $("schedule-list").replaceChildren();
+    for(const job of data.jobs){const row=node("div","runtime-row");row.append(node("span","",`${job.name} / ${job.kind} / ${job.enabled?"ARMED":"PAUSED"} / ${new Date(job.next_run*1000).toLocaleString()}`),actionButton(job.enabled?"pause":"resume","sys_job_enable",{name:job.name,enabled:!job.enabled}),actionButton("run","sys_job_run",{name:job.name}),actionButton("remove","sys_job_remove",{name:job.name}));$("schedule-list").append(row);}
+    if(!data.jobs.length)$("schedule-list").append(node("div","empty-state","[ NO SCHEDULED JOBS ]"));
+    for(const run of data.runs.slice(0,5))$("schedule-list").append(node("div","runtime-row",`RUN ${run.id} / ${run.job} / ${run.status} / PID ${run.pid||"—"}`));
+    $("service-list").replaceChildren();
+    for(const service of data.services){const row=node("div","runtime-row");row.append(node("span","",`${service.name} / ${service.enabled?service.state:"DISABLED"} / callers ${service.callers.join(",")||"none"}`),actionButton("start","sys_service_start",{name:service.name}),actionButton(service.enabled?"disable":"enable","sys_service_enable",{name:service.name,enabled:!service.enabled}));$("service-list").append(row);}
+    if(!data.services.length)$("service-list").append(node("div","empty-state","[ NO REGISTERED SERVICES ]"));
+    $("mailbox-list").replaceChildren();
+    for(const mail of data.mailboxes){const row=node("div","runtime-row");const read=node("button","",`[ read PID ${mail.pid} ]`);read.addEventListener("click",async()=>{const result=await controlAction("sys_mail_recv",{pid:mail.pid});if(result&&authorized()&&view==="kernel")$("mailbox-body").textContent=JSON.stringify(result,null,2);});row.append(node("span","",`PID ${mail.pid} / ${mail.pending} PENDING`),read);$("mailbox-list").append(row);}
+    $("trace-list").replaceChildren();
+    for(const trace of data.traces)$("trace-list").append(node("div","trace-row",`#${trace.id}  PID ${trace.pid}  ${trace.kind.padEnd(7)} ${trace.operation.padEnd(22)} ${trace.status.padEnd(11)} ${trace.duration_ms??"—"}ms${trace.parent?`  parent #${trace.parent}`:""}${trace.error_type?`  ${trace.error_type}`:""}`));
+    if(!data.traces.length)$("trace-list").append(node("div","empty-state","[ NO EXECUTION SPANS ]"));
+  }catch(error){if(owner===token)toast(error.message);}finally{controlsBusy=false;}
+}
+$("inspect-form").addEventListener("submit",async event=>{
+  event.preventDefault();if(!requireAuth())return;const owner=token,pid=Number($("inspect-pid").value);
+  try { const result=await rpc("sys_mem_inspect",{pid});if(owner!==token||view!=="kernel")return;
+    $("inspect-stats").textContent=JSON.stringify({stats:result.stats,resident:result.resident},null,2);$("inspect-body").textContent="";$("inspect-pages").replaceChildren();
+    for(const page of result.pages){const button=node("button","memory-page",`${page.space}/${page.key} / ${page.bytes}B / rev ${page.revision}`);button.addEventListener("click",async()=>{try{const data=await rpc("sys_mem_read",{pid,space:page.space,key:page.key});if(owner===token&&view==="kernel")$("inspect-body").textContent=data.content;}catch(error){toast(error.message);}});$("inspect-pages").append(button);}
+    if(!result.pages.length)$("inspect-pages").append(node("div","empty-state","[ PRIVATE MEMORY EMPTY ]"));
+  }catch(error){toast(error.message);}
+});
 
 // The orb is procedural: no downloaded assets, GPU libraries, or paid generation.
 const canvas=$("orb"),ctx=canvas.getContext("2d");let width=600,height=409,dpr=1,orbFrame=0,lastOrbFrame=0;

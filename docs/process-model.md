@@ -41,3 +41,7 @@ The model tool adapter has a fixed allowlist and calls a separate process dispat
 ## Virtual memory
 
 Each process has its own persisted private namespace; process subtree visibility does not grant access to another process's private pages. Spawn creates empty memory, fork copies private pages independently, and shared grants never inherit. Agents have `sys_mem_read/write/delete/list/search/stat` for their own pages and explicitly granted shared regions. Cardinal alone creates regions and changes PID-specific grants. Reaping deletes private pages and grants; memory flush also covers virtual pages. See [virtual memory](virtual-memory.md) for paging, context bounds, authority and retention semantics.
+
+## Scheduled workers, named services and IPC
+
+The scheduler creates ordinary PID 1 children with captured capability ceilings intersected with current permissions. Named service calls create children of their caller and require exact-PID invocation grants; service registrations and scheduling mutations are kernel-only. Both retain existing global concurrency, child/depth/birth and provider guards. Mail tools expose only an agent's own inbox and ancestor/descendant sending, without changing authority or starting inference. Trace and full inspector APIs remain kernel-only. See [background runtime](background-runtime.md) for dispatch, recovery and retention semantics.

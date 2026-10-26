@@ -72,3 +72,15 @@ body.kernel-mode { --bg:#020604; --text:#9ac9a2; --muted:#50745a; --border:#1936
 
 .memory-panel { margin-top:14px; }
 .memory-panel .topology { min-height:0; margin:4px 0 10px; font-size:11px; }
+
+.runtime-list { max-height:220px; overflow:auto; }
+.runtime-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid #132b1b; font:10px/1.6 monospace; color:#789e83; overflow-wrap:anywhere; }
+.runtime-row>span { flex:1; min-width:120px; }
+.runtime-row button,.inspect-form button,.memory-page { color:#a2d8b0; font:10px monospace; }
+.inspect-form { display:flex; gap:12px; align-items:center; margin:8px 0; }
+.inspect-form input { width:80px; background:#061008; color:#bce4c4; border:1px solid #31503b; padding:5px; }
+.inspect-output { font:10px/1.65 monospace; color:#8fb89a; white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; }
+.memory-page { display:block; padding:6px 0; text-align:left; overflow-wrap:anywhere; }
+.trace-panel { grid-column:1/-1; }
+.trace-list { max-height:210px; overflow:auto; }
+.trace-row { white-space:pre; font:10px/1.8 monospace; color:#7ba488; }
